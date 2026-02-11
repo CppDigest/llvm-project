@@ -1,6 +1,7 @@
 # CI Improvement Proposals for cppa-clang
 
-**Issue:** [CppDigest/llvm-project#1](https://github.com/CppDigest/llvm-project/issues/1)
+**Issue:** [CppDigest/llvm-project#1](https://github.com/CppDigest/llvm-project/issues/1)  
+**Context:** Full context for edits: repo root, `.ci/`, `.github/workflows/`, [CI Workflow Report](ci-workflow-report.md). Blueprint: [.github/workflows/cppa-clang-ci.yml](../.github/workflows/cppa-clang-ci.yml).
 
 ---
 
@@ -29,7 +30,7 @@
 | 7 | Self-hosted runner fleet | High | High | Med | Org admin | Provision 1 runner, benchmark, scale gradually | Later |
 | 8 | Agentic CI + web chat | High | High | Med | Org admin + webhooks | Deploy triage agent on fork, expand to bisection | Later |
 
-At least 3 are directly implementable today: P1 (sccache), P2 (path-filter), P3 (CMake cache) — see Appendix A.
+P1, P2, P3 are the quickest to try; see Appendix A.
 
 ---
 
@@ -86,8 +87,8 @@ steps:
 
 | Aspect | Details |
 |--------|---------|
-| Problem | Full build on every PR regardless of changed files |
-| Change | Add `paths`/`paths-ignore` filters to triggers |
+| Problem | Pre-merge runs even when only docs or unrelated subprojects change; no path-level skip |
+| Change | Add `paths`/`paths-ignore` filters so workflow can be skipped when only filtered paths change |
 | Location | `.github/workflows/premerge.yaml` trigger section |
 | Validation | Track % of PRs skipping builds; no regressions in merged code |
 
@@ -163,7 +164,7 @@ on:
 | Aspect | Details |
 |--------|---------|
 | Problem | Failure triage, bisection, patching are all manual |
-| Change | AI agents for classify → bisect → fix → submit; web chat for devs |
+| Change | Agents: classify, bisect, suggest fix, submit; web chat for "why did my PR fail?" |
 | Location | `.github/workflows/`, webhook integrations |
 | Validation | Mean-time-to-resolution; developer satisfaction |
 
@@ -188,66 +189,14 @@ on:
 
 ## Appendix B: Reference CI Config
 
-```yaml
-# .github/workflows/cppa-clang-ci.yml
-name: cppa-clang CI
-on:
-  pull_request:
-    paths: ['clang/**', 'llvm/**', 'cmake/**']
-  push:
-    branches: [main, 'release/**']
+The live blueprint is [.github/workflows/cppa-clang-ci.yml](../.github/workflows/cppa-clang-ci.yml). Summary:
 
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  SCCACHE_IDLE_TIMEOUT: "0"
+| Aspect | Choice |
+|--------|--------|
+| Trigger | `pull_request` with path filters (clang, llvm, cmake, .ci, this workflow); `push` to main/release |
+| Paths | `paths` + `paths-ignore` (e.g. `**/*.md`, lldb, openmp) so many PRs skip the workflow |
+| Env | `SCCACHE_GHA_ENABLED`, `SCCACHE_IDLE_TIMEOUT=0` |
+| Linux | checkout (sparse) → sccache-action → `.ci/build.sh configure` → `.ci/build.sh build` → `.ci/run-tests.sh --retry` → sccache stats; 90 min timeout |
+| Windows | checkout (sparse) → sccache → cmake (preset `ci-release`) → ninja build/test → sccache stats; 120 min timeout |
 
-jobs:
-  linux-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            llvm
-            clang
-            cmake
-            .ci
-      - uses: mozilla-actions/sccache-action@v0.0.6
-      - name: Configure
-        run: |
-          cmake -G Ninja -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_ENABLE_PROJECTS="clang" \
-            -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
-            -DLLVM_ENABLE_LLD=ON \
-            llvm
-      - name: Build
-        run: ninja -C build -j$(nproc)
-      - name: Test
-        run: ninja -C build check-clang check-llvm
-      - name: sccache stats
-        run: sccache --show-stats
-        if: always()
-
-  windows-build:
-    runs-on: windows-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            llvm
-            clang
-            cmake
-            .ci
-      - uses: mozilla-actions/sccache-action@v0.0.6
-      - name: Configure & Build & Test
-        run: |
-          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-          ninja -C build -j%NUMBER_OF_PROCESSORS%
-          ninja -C build check-clang
-        shell: cmd
-```
+Inline YAML snippets (no .ci scripts) are in Appendix A (P1–P3).

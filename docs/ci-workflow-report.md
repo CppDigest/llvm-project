@@ -1,6 +1,7 @@
 # LLVM CI/Automation Workflow Report
 
-**Issue:** [CppDigest/llvm-project#1](https://github.com/CppDigest/llvm-project/issues/1)
+**Issue:** [CppDigest/llvm-project#1](https://github.com/CppDigest/llvm-project/issues/1)  
+**Context:** For full context when editing or regenerating: repo root, `.ci/`, `.github/workflows/`, and this doc. Phased actions: [CI Improvement Proposals](ci-improvement-proposals.md). Blueprint: [.github/workflows/cppa-clang-ci.yml](../.github/workflows/cppa-clang-ci.yml).
 
 ---
 
@@ -96,7 +97,7 @@ Failure notifications are "normal" even for harmless commits — signal is dilut
 | Test results (lit) | Inside CI job log output | Search for `FAIL:` or `XFAIL:` |
 | sccache stats | CI job log (if `--show-stats` enabled) | Search for `sccache` in log |
 
-If a PR check fails: click the red X → find the failing job → expand the failing step. Flaky tests (lldb/openmp) often pass on re-run. Real failures show consistent `FAIL:` lines.
+PR failure: Checks tab → failing job → expand step. Flaky (lldb/openmp) often pass on re-run; real failures show consistent `FAIL:`.
 
 ## 6. Automation Inventory & Gaps
 
@@ -107,10 +108,26 @@ If a PR check fails: click the red X → find the failing job → expand the fai
 | `clang-format` checker | Active | |
 | Post-commit buildbots (200+) | Active (never green) | No flake quarantine |
 | Release automation | Active | |
-| Selective rebuild | Missing | Full build every PR |
+| Selective rebuild (project-level) | Present | `.ci/compute_projects.py` selects projects from diff; gap is path-level filters, incremental builds, test-level selection |
 | Bisection bot | Missing | Manual bisection only |
 | Merge queue | Missing | 150+ commits/day vs multi-hour builds |
 | Cache tracking | Missing | sccache hit rate unmonitored |
+
+## 6.1 Agentic Workflow Integration
+
+Agents can support the following; humans keep approval and review.
+
+| Area | Agent role | Human role |
+|------|------------|------------|
+| **Failure classification** | Classify CI failure (build vs test, flake vs real) | Review and confirm |
+| **Flaky test detection** | Propose quarantine from re-run patterns | Approve quarantine list |
+| **Minimal repro** | Reduce failing test or command to minimal case | Verify repro |
+| **Targeted test selection** | Suggest which tests to run for a given diff | Approve scope |
+| **Bisection** | Propose suspect range from pass/fail history | Approve range and fixes |
+| **Patch suggestion** | Propose fixes from diagnostics | Review and merge |
+| **Web chat Q&A** | Answer "why did my PR fail?" from logs and history | Ask questions |
+
+Phased plan and task list: [CI Improvement Proposals](ci-improvement-proposals.md) — P8 and Appendix A.
 
 ## 7. Baseline Metrics
 
@@ -121,6 +138,25 @@ If a PR check fails: click the red X → find the failing job → expand the fai
 | sccache hit rate | Unknown | > 80% |
 | Flake re-runs/day | ~5+ | < 1 |
 | Buildbot green rate | Never green | > 90% |
+
+---
+
+## 8. Workflow Analyzer Script
+
+| What | Where | How |
+|------|-------|-----|
+| Script | `.ci/workflow_analyzer.py` | GitHub API → recent runs/jobs → job-level timing table |
+| Auth | `GITHUB_TOKEN` or `GH_TOKEN` (Actions read) | Set in env |
+| Output | Total minutes and % share per job | Stdout |
+
+From repo root:
+
+```bash
+export GITHUB_TOKEN=<token>
+python .ci/workflow_analyzer.py --repo llvm/llvm-project --workflow "CI Checks" --runs 5
+```
+
+Options: `--repo`, `--workflow`, `--runs`, `--event`. See Appendix C for how to use the output.
 
 ---
 
@@ -157,3 +193,7 @@ llvm-project/               ~9M lines total, ~2.5M C++ core
 | 7 | "LLVM: The bad parts" | https://www.npopov.com/2026/01/11/LLVM-The-bad-parts.html |
 | 8 | LLVM Buildbots | https://jplehr.de/2025/01/20/llvm-buildbots/ |
 | 9 | sccache idle timeout | https://www.mail-archive.com/llvm-branch-commits@lists.llvm.org/msg55844.html |
+
+## Appendix C: Using the Workflow Analyzer Output
+
+Cross-check Section 3 with the table (which job dominates). To measure CI changes on a fork, run the script before and after a change (e.g. sccache or path filters) and compare totals and per-job share.
