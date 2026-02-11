@@ -9,8 +9,8 @@
 
 | Item | Value |
 |------|-------|
-| Pre-merge gate | `premerge.yaml` (GitHub Actions, every PR) |
-| Build time | **120 min** (Linux) / **180 min** (Windows) |
+| Pre-merge gate | `premerge.yaml` (GitHub Actions). Runs only when `repository_owner == 'llvm'` (i.e. upstream; not on forks). |
+| Build time | **120 min** (Linux) / **180 min** (Windows) — from workflow `timeout-minutes` in repo. |
 | Post-commit bots | **200+** buildbots, never fully green |
 | Flaky tests | lldb, openmp — spurious failures daily |
 | Daily commits | 150+ on main |
@@ -40,11 +40,13 @@
                         └──→ Fail → Revert or fix-forward (manual)
 ```
 
+**Fork vs upstream:** Pre-merge jobs in `premerge.yaml` use `if: github.repository_owner == 'llvm'`, so they do **not** run on forks (e.g. CppDigest/llvm-project). On the fork, the gate is whatever workflows you enable (e.g. [cppa-clang-ci.yml](../.github/workflows/cppa-clang-ci.yml)).
+
 ## 2. Workflow Inventory
 
 | Category | Count | Key Workflows | Trigger |
 |----------|-------|--------------|---------|
-| Core CI / Pre-merge | ~5 | `premerge.yaml`, `check-code-formatting`, `labelling` | `pull_request` |
+| Core CI / Pre-merge | ~5 | `premerge.yaml`, `pr-code-format.yml` ("Check code formatting"), `new-prs.yml` ("Labelling new pull requests") | `pull_request` |
 | Subproject CI | ~15 | `libcxx-build-and-test.yaml`, `llvm-tests.yml` | `pull_request` (path-filtered) |
 | Release | ~5 | `release-binaries.yml`, `release-asset-audit` | `workflow_dispatch` / `schedule` |
 | Triage / Bots | ~8 | `pr-subscriber.yml`, `issue-comment` | `pull_request` / `issue_comment` |
@@ -53,6 +55,8 @@
 | **Total** | **~48** | | |
 
 ## 3. Time Allocation (Pre-merge, Linux)
+
+Phase breakdown below is from external measurement (see Appendix B ref 7); timeouts in repo are 120 min (Linux) and 180 min (Windows) per `premerge.yaml`.
 
 ```
  Phase             Time     Share
@@ -197,3 +201,23 @@ llvm-project/               ~9M lines total, ~2.5M C++ core
 ## Appendix C: Using the Workflow Analyzer Output
 
 Cross-check Section 3 with the table (which job dominates). To measure CI changes on a fork, run the script before and after a change (e.g. sccache or path filters) and compare totals and per-job share.
+
+## Appendix D: Verification (what was checked in-repo)
+
+| Claim | Checked how |
+|-------|-------------|
+| Pre-merge gate, 120/180 min | `premerge.yaml`: `timeout-minutes: 120` (Linux), `180` (Windows); `if: github.repository_owner == 'llvm'` |
+| Flaky: lldb, openmp | `.ci/flaky-tests.txt`: 2 lldb, 2 openmp entries with reasons |
+| Selective rebuild (project-level) | `.ci/compute_projects.py`: diff → projects + dependents; EXCLUDE_LINUX/WINDOWS/MAC |
+| Workflow count ~48 | `.github/workflows/`: 47 .yml + 5 .yaml top-level (excl. subdir actions) |
+| Format / labelling workflows | `pr-code-format.yml` (name "Check code formatting"), `new-prs.yml` (name "Labelling new pull requests"); both `if: github.repository == 'llvm/llvm-project'` |
+| Phase breakdown (5/20/55/15/20 min) | Not in repo; from external source (Appendix B ref 7) |
+| 200+ buildbots, 150+ commits/day, 1.6M runs | Not in repo; from buildbot/community references |
+
+## Appendix E: Conclusions for further effort (cppa-clang)
+
+1. **Fork CI:** On CppDigest/llvm-project, premerge does not run. Use cppa-clang-ci (or similar) as the gate; keep path filters and sccache so feedback is fast.
+2. **What already exists:** Project-level selection (compute_projects.py) is in place; the gap is path-level skip (e.g. docs-only PRs), incremental builds, and test-level selection. Don’t re-implement project selection.
+3. **Metrics:** Run `.ci/workflow_analyzer.py` against **llvm/llvm-project** (with token) to get current job timings; run against your fork after changes to measure impact. sccache hit rate is not logged in-repo today—add `sccache --show-stats` (or similar) and parse logs to get a baseline.
+4. **Flakiness:** `.ci/flaky-tests.txt` is the canonical list. openmp is excluded on Linux premerge (EXCLUDE_LINUX); lldb runs. Prioritize quarantine/retry (proposals P4) so signal is clearer.
+5. **Next steps:** Implement P1–P3 on the fork (sccache logging, path filters, CMake cache), measure with the analyzer, then iterate. Agentic (P8) and self-hosted (P7) depend on having stable, fast CI first.
