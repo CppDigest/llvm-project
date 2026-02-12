@@ -9,7 +9,7 @@
 #   2. App installed on CppDigest/llvm-project with Contents + PR permissions
 #
 # Local test:
-#   rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=https://github.com/CppDigest/llvm-project.git --init branch=main
+#   rwx run .rwx/ci.yml --init commit-sha=HEAD
 #
 
 on:
@@ -24,16 +24,6 @@ on:
         commit-sha: ${{ event.git.sha }}
         clone-url: ${{ event.github.pull_request.head.repo.clone_url }}
         branch: ${{ event.pull_request.head.ref }}
-
-concurrency-pools:
-  - id: cppdigest/llvm-project:main
-    if: ${{ init.branch == 'main' }}
-    capacity: 1
-    on-overflow: cancel-waiting
-  - id: cppdigest/llvm-project:pr
-    if: ${{ init.branch != 'main' }}
-    capacity: 1
-    on-overflow: cancel-running
 
 base:
   image: ubuntu:24.04
