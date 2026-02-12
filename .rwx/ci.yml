@@ -1,0 +1,483 @@
+#
+# RWX CI — CppDigest/llvm-project (Linux monolithic build)
+#
+# Migrated from .ci/monolithic-linux.sh + GitHub Actions.
+# DAG: clone → deps/sccache → configure → build → parallel checks (incl. lldb, runtimes) → report
+#
+# Prerequisites:
+#   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-test) in Vault
+#   2. App installed on CppDigest/llvm-project with Contents + PR permissions
+#
+# Local test: rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=<repo-clone-url> --init branch=<branch>
+#
+
+on:
+  github:
+    push:
+      init:
+        commit-sha: ${{ event.git.sha }}
+        clone-url: ${{ event.github.push.repository.clone_url }}
+        branch: ${{ event.git.branch }}
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+        clone-url: ${{ event.github.pull_request.head.repo.clone_url }}
+        branch: ${{ event.pull_request.head.ref }}
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tasks:
+  # ---------- Stage 1: clone + toolchain ----------
+
+  - key: clone-repo
+    timeout: 10m
+    run: |
+      git clone --depth 1 ${{ init.clone-url }} llvm-project
+      cd llvm-project
+      git fetch origin ${{ init.commit-sha }}
+      git checkout ${{ init.commit-sha }}
+    filter:
+      - llvm-project/**
+
+  - key: install-build-deps
+    timeout: 5m
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y \
+        cmake ninja-build clang lld \
+        python3 python3-pip python-is-python3 \
+        libxml2-dev libedit-dev libncurses5-dev swig \
+        build-essential
+      pip install --break-system-packages -q lit psutil
+    cache: true
+    filter:
+      - .rwx/ci.yml
+
+  - key: install-sccache
+    timeout: 2m
+    run: |
+      wget -q https://github.com/mozilla/sccache/releases/download/v0.8.2/sccache-v0.8.2-x86_64-unknown-linux-musl.tar.gz
+      tar xzf sccache-v0.8.2-x86_64-unknown-linux-musl.tar.gz
+      sudo mv sccache-v0.8.2-x86_64-unknown-linux-musl/sccache /usr/local/bin/
+      chmod +x /usr/local/bin/sccache
+    cache: true
+    filter:
+      - .rwx/ci.yml
+
+  # ---------- Stage 2: cmake configure ----------
+
+  - key: cmake-configure
+    use: [clone-repo, install-build-deps, install-sccache]
+    timeout: 15m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      sccache --zero-stats
+
+      cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
+        -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;lldb;mlir;polly;bolt;flang" \
+        -D LLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
+        -G Ninja \
+        -D CMAKE_BUILD_TYPE=Release \
+        -D LLVM_ENABLE_ASSERTIONS=ON \
+        -D LLVM_BUILD_EXAMPLES=ON \
+        -D COMPILER_RT_BUILD_LIBFUZZER=OFF \
+        -D LLVM_LIT_ARGS="-v --xunit-xml-output $BUILD_DIR/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
+        -D LLVM_ENABLE_LLD=ON \
+        -D CMAKE_CXX_FLAGS=-gmlt \
+        -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+        -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+        -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
+        -D LIBCXX_CXX_ABI=libcxxabi \
+        -D MLIR_ENABLE_BINDINGS_PYTHON=ON \
+        -D LLDB_ENABLE_PYTHON=ON \
+        -D LLDB_ENFORCE_STRICT_TEST_REQUIREMENTS=ON \
+        -D CMAKE_INSTALL_PREFIX="$BUILD_DIR/install" \
+        -D CMAKE_EXE_LINKER_FLAGS="-no-pie" \
+        -D LLVM_ENABLE_WERROR=ON
+    cache: true
+    filter:
+      - llvm-project/llvm/CMakeLists.txt
+      - llvm-project/clang/CMakeLists.txt
+      - llvm-project/cmake/**
+      - tmp/sccache/**
+      - .rwx/ci.yml
+
+  # ---------- Stage 3: build core ----------
+
+  - key: build-llvm-core
+    use: [cmake-configure]
+    timeout: 90m
+    agent:
+      cpus: 16
+      memory: 64GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 \
+        llvm-libraries clang lld \
+        llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
+        2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-core.log"
+
+      TASK_END=$(date +%s)
+      sccache --show-stats
+
+      # Write timing to unique file (avoids merge conflicts in parallel tasks)
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|build-llvm-core|SUCCESS" > "$WORKSPACE_ROOT/tmp/timing/build-llvm-core.log"
+      sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
+    cache: true
+    filter:
+      - llvm-project/llvm/**
+      - llvm-project/clang/**
+      - llvm-project/lld/**
+      - tmp/sccache/**
+
+  # ---------- Stage 4: parallel checks ----------
+  #
+  # Each check task writes timing to its own file under tmp/timing/
+  # to avoid file-merge conflicts when performance-analysis reads them.
+
+  - key: check-llvm
+    use: [build-llvm-core]
+    timeout: 30m
+    agent:
+      cpus: 8
+      memory: 32GB
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" check-llvm 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-llvm.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-llvm|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-llvm.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/llvm/**
+
+  - key: check-clang
+    use: [build-llvm-core]
+    timeout: 30m
+    agent:
+      cpus: 8
+      memory: 32GB
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" check-clang 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-clang.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-clang|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-clang.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/clang/**
+      - llvm-project/llvm/**
+
+  - key: check-lld
+    use: [build-llvm-core]
+    timeout: 15m
+    agent:
+      cpus: 4
+      memory: 16GB
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" check-lld 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-lld.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-lld|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-lld.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/lld/**
+      - llvm-project/llvm/**
+
+  - key: check-mlir
+    use: [build-llvm-core]
+    timeout: 45m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 mlir-libraries 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-mlir.log"
+      ninja -C "$BUILD_DIR" check-mlir 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-mlir.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-mlir|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-mlir.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/mlir/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  - key: check-bolt
+    use: [build-llvm-core]
+    timeout: 15m
+    agent:
+      cpus: 4
+      memory: 16GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 bolt 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-bolt.log"
+      ninja -C "$BUILD_DIR" check-bolt 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-bolt.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-bolt|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-bolt.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/bolt/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  - key: check-polly
+    use: [build-llvm-core]
+    timeout: 15m
+    agent:
+      cpus: 4
+      memory: 16GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 polly 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-polly.log"
+      ninja -C "$BUILD_DIR" check-polly 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-polly.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-polly|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-polly.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/polly/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  - key: check-flang
+    use: [build-llvm-core]
+    timeout: 30m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 flang 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-flang.log"
+      ninja -C "$BUILD_DIR" check-flang 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-flang.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-flang|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-flang.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/flang/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  - key: check-clang-tools
+    use: [build-llvm-core]
+    timeout: 30m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 clang-tools 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-clang-tools.log"
+      ninja -C "$BUILD_DIR" check-clang-tools 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-clang-tools.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-clang-tools|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-clang-tools.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/clang-tools-extra/**
+      - llvm-project/clang/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  - key: check-lldb
+    use: [build-llvm-core]
+    timeout: 45m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      ninja -C "$BUILD_DIR" -k 0 lldb 2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-lldb.log"
+      ninja -C "$BUILD_DIR" check-lldb 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-lldb.log"
+      RETCODE=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-lldb|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-lldb.log"
+      exit $RETCODE
+    filter:
+      - llvm-project/lldb/**
+      - llvm-project/llvm/**
+      - tmp/sccache/**
+
+  # ---------- Stage 4b: runtime build + tests (compiler-rt, libcxx/libcxxabi/libunwind with C++26 and Clang Modules) ----------
+
+  - key: check-runtimes
+    use: [build-llvm-core]
+    timeout: 60m
+    agent:
+      cpus: 8
+      memory: 32GB
+    env:
+      SCCACHE_CACHE_SIZE: 5G
+    run: |
+      TASK_START=$(date +%s)
+      WORKSPACE_ROOT=$(pwd)
+      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
+      BUILD_DIR="$WORKSPACE_ROOT/build"
+
+      # Build and test compiler-rt
+      ninja -C "$BUILD_DIR" check-compiler-rt 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-compiler-rt.log"
+      RET1=${PIPESTATUS[0]}
+
+      # Reconfig for libcxx/libcxxabi/libunwind C++26, then build and test
+      cmake -D LIBCXX_TEST_PARAMS="std=c++26" -D LIBCXXABI_TEST_PARAMS="std=c++26" "$BUILD_DIR"
+      ninja -C "$BUILD_DIR" check-cxx check-cxxabi check-unwind 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-runtimes-cxx26.log"
+      RET2=${PIPESTATUS[0]}
+
+      # Reconfig for Clang Modules, then build and test again
+      cmake -D LIBCXX_TEST_PARAMS="enable_modules=clang" -D LIBCXXABI_TEST_PARAMS="enable_modules=clang" "$BUILD_DIR"
+      ninja -C "$BUILD_DIR" check-cxx check-cxxabi check-unwind 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-runtimes-modules.log"
+      RET3=${PIPESTATUS[0]}
+
+      TASK_END=$(date +%s)
+      if [ $RET1 -eq 0 ] && [ $RET2 -eq 0 ] && [ $RET3 -eq 0 ]; then STATUS="SUCCESS"; else STATUS="FAIL"; fi
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
+      echo "$((TASK_END - TASK_START))|check-runtimes|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-runtimes.log"
+      [ $RET1 -eq 0 ] && [ $RET2 -eq 0 ] && [ $RET3 -eq 0 ] || exit 1
+    filter:
+      - llvm-project/compiler-rt/**
+      - llvm-project/libcxx/**
+      - llvm-project/libcxxabi/**
+      - llvm-project/libunwind/**
+      - llvm-project/llvm/**
+      - llvm-project/clang/**
+      - tmp/sccache/**
+
+  # ---------- Stage 5: report (runs even if checks fail) ----------
+
+  - key: performance-analysis
+    after: ${{ (check-llvm.succeeded || check-llvm.failed) && (check-clang.succeeded || check-clang.failed) && (check-lld.succeeded || check-lld.failed) && (check-mlir.succeeded || check-mlir.failed) && (check-bolt.succeeded || check-bolt.failed) && (check-polly.succeeded || check-polly.failed) && (check-flang.succeeded || check-flang.failed) && (check-clang-tools.succeeded || check-clang-tools.failed) && (check-lldb.succeeded || check-lldb.failed) && (check-runtimes.succeeded || check-runtimes.failed) }}
+    use: [check-llvm, check-clang, check-lld, check-mlir, check-bolt, check-polly, check-flang, check-clang-tools, check-lldb, check-runtimes]
+    timeout: 5m
+    run: |
+      echo ""
+      echo "=== RWX CI PERFORMANCE REPORT — LLVM ==="
+      echo ""
+
+      WORKSPACE_ROOT=$(pwd)
+      TIMING_DIR="$WORKSPACE_ROOT/tmp/timing"
+
+      if ls "$TIMING_DIR"/*.log 1>/dev/null 2>&1; then
+        echo "Task Timings (sorted by duration):"
+        echo "------------------------------------------------------------"
+        cat "$TIMING_DIR"/*.log | sort -t'|' -k1 -rn | while IFS='|' read -r duration task status; do
+          printf "  %-30s %6ss  [%s]\n" "$task" "$duration" "$status"
+        done
+        echo ""
+
+        TOTAL=0
+        while IFS='|' read -r duration task status; do
+          TOTAL=$((TOTAL + duration))
+        done < <(cat "$TIMING_DIR"/*.log)
+        echo "Sequential total: ${TOTAL}s"
+
+        FAILURES=$(cat "$TIMING_DIR"/*.log | grep "FAIL" | wc -l)
+        if [ "$FAILURES" -gt 0 ]; then
+          echo ""
+          echo "FAILED:"
+          cat "$TIMING_DIR"/*.log | grep "FAIL" | while IFS='|' read -r d t s; do
+            echo "  - $t (${d}s)"
+          done
+        fi
+      else
+        echo "No timing data found."
+      fi
+
+      echo ""
+      if [ -f "$TIMING_DIR/sccache-build.txt" ]; then
+        echo "Sccache (build-llvm-core):"
+        echo "------------------------------------------------------------"
+        cat "$TIMING_DIR/sccache-build.txt"
+      fi
+    filter:
+      - .rwx/ci.yml
