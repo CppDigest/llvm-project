@@ -48,6 +48,10 @@ tasks:
       git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-project
       cd llvm-project
       git checkout ${{ init.commit-sha }}
+      # Ensure full tree so CMake finds cmake/, include/llvm/Config, LICENSE.TXT (avoid sparse-checkout partial tree)
+      git sparse-checkout set --no-cone '/*' 2>/dev/null || true
+      git read-tree -mu HEAD 2>/dev/null || true
+    cache: false
     filter:
       - llvm-project/**
 
