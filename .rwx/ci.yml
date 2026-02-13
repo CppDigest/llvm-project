@@ -69,10 +69,10 @@ tasks:
 
   - key: cmake-configure
     use: [clone-repo, install-build-deps, install-sccache]
-    timeout: 15m
+    timeout: 30m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -115,10 +115,10 @@ tasks:
 
   - key: build-llvm-core
     use: [cmake-configure]
-    timeout: 90m
+    timeout: 180m
     agent:
-      cpus: 16
-      memory: 64GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -127,7 +127,7 @@ tasks:
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
 
-      ninja -C "$BUILD_DIR" -k 0 \
+      ninja -C "$BUILD_DIR" -j2 -k 0 \
         llvm-libraries clang lld \
         llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
         2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-core.log"
@@ -153,10 +153,10 @@ tasks:
 
   - key: check-llvm
     use: [build-llvm-core]
-    timeout: 30m
+    timeout: 60m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
@@ -175,10 +175,10 @@ tasks:
 
   - key: check-clang
     use: [build-llvm-core]
-    timeout: 30m
+    timeout: 60m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
@@ -198,10 +198,10 @@ tasks:
 
   - key: check-lld
     use: [build-llvm-core]
-    timeout: 15m
+    timeout: 30m
     agent:
-      cpus: 4
-      memory: 16GB
+      cpus: 2
+      memory: 8GB
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
@@ -221,10 +221,10 @@ tasks:
 
   - key: check-mlir
     use: [build-llvm-core]
-    timeout: 45m
+    timeout: 90m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -249,10 +249,10 @@ tasks:
 
   - key: check-bolt
     use: [build-llvm-core]
-    timeout: 15m
+    timeout: 30m
     agent:
-      cpus: 4
-      memory: 16GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -277,10 +277,10 @@ tasks:
 
   - key: check-polly
     use: [build-llvm-core]
-    timeout: 15m
+    timeout: 30m
     agent:
-      cpus: 4
-      memory: 16GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -305,10 +305,10 @@ tasks:
 
   - key: check-flang
     use: [build-llvm-core]
-    timeout: 30m
+    timeout: 60m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -333,10 +333,10 @@ tasks:
 
   - key: check-clang-tools
     use: [build-llvm-core]
-    timeout: 30m
+    timeout: 60m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -362,10 +362,10 @@ tasks:
 
   - key: check-lldb
     use: [build-llvm-core]
-    timeout: 45m
+    timeout: 90m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -392,10 +392,10 @@ tasks:
 
   - key: check-runtimes
     use: [build-llvm-core]
-    timeout: 60m
+    timeout: 120m
     agent:
-      cpus: 8
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
