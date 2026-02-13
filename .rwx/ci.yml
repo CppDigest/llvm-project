@@ -2,7 +2,8 @@
 # RWX CI — CppDigest/llvm-project (Linux monolithic build)
 #
 # Migrated from .ci/monolithic-linux.sh + GitHub Actions.
-# DAG: clone → deps/sccache → configure → build → parallel checks (llvm, clang, lld) → report
+# DAG: clone → deps/sccache → configure → build → parallel checks (llvm, clang) → report
+# Projects: clang only (lld/clang-tools-extra omitted when workspace lacks those dirs)
 #
 # RWX workflow parameters and packages:
 #   https://github.com/rwx-cloud/packages  — Packages for CI/CD on RWX
@@ -92,17 +93,17 @@ tasks:
 
       sccache --zero-stats
 
-      # Avoid stale CMakeCache requesting projects not in this workflow (e.g. clang-tools-extra)
+      # Avoid stale CMakeCache requesting projects not in this workflow
       rm -f "$BUILD_DIR/CMakeCache.txt"
 
       cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
-        -D LLVM_ENABLE_PROJECTS="clang;lld" \
+        -D LLVM_ENABLE_PROJECTS="clang" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
         -D LLVM_ENABLE_ASSERTIONS=ON \
         -D LLVM_BUILD_EXAMPLES=OFF \
         -D LLVM_LIT_ARGS="-v --xunit-xml-output $BUILD_DIR/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
-        -D LLVM_ENABLE_LLD=ON \
+        -D LLVM_ENABLE_LLD=OFF \
         -D CMAKE_CXX_FLAGS=-g1 \
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
@@ -134,7 +135,7 @@ tasks:
       BUILD_DIR="$WORKSPACE_ROOT/build"
 
       ninja -C "$BUILD_DIR" -j2 -k 0 \
-        llvm-libraries clang lld \
+        llvm-libraries clang \
         llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
         2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-core.log"
 
@@ -149,7 +150,6 @@ tasks:
     filter:
       - llvm-project/llvm/**
       - llvm-project/clang/**
-      - llvm-project/lld/**
       - tmp/sccache/**
 
   # ---------- Stage 4: parallel checks ----------
@@ -202,34 +202,11 @@ tasks:
       - llvm-project/clang/**
       - llvm-project/llvm/**
 
-  - key: check-lld
-    use: [build-llvm-core]
-    timeout: 30m
-    agent:
-      cpus: 2
-      memory: 8GB
-    run: |
-      TASK_START=$(date +%s)
-      WORKSPACE_ROOT=$(pwd)
-      BUILD_DIR="$WORKSPACE_ROOT/build"
-
-      ninja -C "$BUILD_DIR" check-lld 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-lld.log"
-      RETCODE=${PIPESTATUS[0]}
-
-      TASK_END=$(date +%s)
-      STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
-      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
-      echo "$((TASK_END - TASK_START))|check-lld|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-lld.log"
-      exit $RETCODE
-    filter:
-      - llvm-project/lld/**
-      - llvm-project/llvm/**
-
   # ---------- Stage 5: report (runs even if checks fail) ----------
 
   - key: performance-analysis
-    after: ${{ (check-llvm.succeeded || check-llvm.failed) && (check-clang.succeeded || check-clang.failed) && (check-lld.succeeded || check-lld.failed) }}
-    use: [check-llvm, check-clang, check-lld]
+    after: ${{ (check-llvm.succeeded || check-llvm.failed) && (check-clang.succeeded || check-clang.failed) }}
+    use: [check-llvm, check-clang]
     timeout: 5m
     run: |
       echo ""
