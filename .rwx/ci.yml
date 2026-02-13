@@ -124,7 +124,7 @@ tasks:
 
   - key: build-llvm-core
     use: [cmake-configure]
-    timeout: 180m
+    timeout: 360m
     agent:
       cpus: 2
       memory: 8GB
