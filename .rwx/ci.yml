@@ -21,7 +21,7 @@ on:
     pull_request:
       init:
         commit-sha: ${{ event.git.sha }}
-        clone-url: ${{ event.github.pull_request.head.repo.clone_url }}
+        clone-url: ${{ event.github.pull_request.pull_request.head.repo.clone_url }}
         branch: ${{ event.git.branch }}
 
 base:
