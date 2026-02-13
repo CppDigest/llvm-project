@@ -22,7 +22,7 @@ on:
       init:
         commit-sha: ${{ event.git.sha }}
         clone-url: ${{ event.github.pull_request.head.repo.clone_url }}
-        branch: ${{ event.pull_request.head.ref }}
+        branch: ${{ event.git.branch }}
 
 base:
   image: ubuntu:24.04
@@ -34,9 +34,8 @@ tasks:
   - key: clone-repo
     timeout: 10m
     run: |
-      git clone --depth 1 ${{ init.clone-url }} llvm-project
+      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-project
       cd llvm-project
-      git fetch origin ${{ init.commit-sha }}
       git checkout ${{ init.commit-sha }}
     filter:
       - llvm-project/**
