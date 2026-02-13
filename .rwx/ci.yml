@@ -45,15 +45,19 @@ tasks:
   - key: clone-repo
     timeout: 10m
     run: |
-      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-project
-      cd llvm-project
+      set -e
+      # Clone into a dedicated dir so we never use Mint's sparse llvm-project workspace
+      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-src
+      cd llvm-src
       git checkout ${{ init.commit-sha }}
-      # Ensure full tree so CMake finds cmake/, include/llvm/Config, LICENSE.TXT (avoid sparse-checkout partial tree)
+      git config core.sparseCheckout false
       git sparse-checkout set --no-cone '/*' 2>/dev/null || true
-      git read-tree -mu HEAD 2>/dev/null || true
+      git checkout -f ${{ init.commit-sha }}
+      test -f llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake — full tree required"; exit 1; }
+      test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT — full tree required"; exit 1; }
     cache: false
     filter:
-      - llvm-project/**
+      - llvm-src/**
 
   - key: install-build-deps
     timeout: 5m
@@ -100,7 +104,7 @@ tasks:
       # Avoid stale CMakeCache requesting projects not in this workflow
       rm -f "$BUILD_DIR/CMakeCache.txt"
 
-      cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
+      cmake -S "$WORKSPACE_ROOT/llvm-src/llvm" -B "$BUILD_DIR" \
         -D LLVM_ENABLE_PROJECTS="clang" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
@@ -116,9 +120,9 @@ tasks:
         -D LLVM_ENABLE_WERROR=OFF
     cache: true
     filter:
-      - llvm-project/llvm/CMakeLists.txt
-      - llvm-project/clang/CMakeLists.txt
-      - llvm-project/cmake/**
+      - llvm-src/llvm/CMakeLists.txt
+      - llvm-src/clang/CMakeLists.txt
+      - llvm-src/cmake/**
       - tmp/sccache/**
       - .rwx/ci.yml
 
@@ -152,8 +156,8 @@ tasks:
       sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
     cache: true
     filter:
-      - llvm-project/llvm/**
-      - llvm-project/clang/**
+      - llvm-src/llvm/**
+      - llvm-src/clang/**
       - tmp/sccache/**
 
   # ---------- Stage 4: parallel checks ----------
@@ -181,7 +185,7 @@ tasks:
       echo "$((TASK_END - TASK_START))|check-llvm|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-llvm.log"
       exit $RETCODE
     filter:
-      - llvm-project/llvm/**
+      - llvm-src/llvm/**
 
   - key: check-clang
     use: [build-llvm-core]
@@ -203,8 +207,8 @@ tasks:
       echo "$((TASK_END - TASK_START))|check-clang|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-clang.log"
       exit $RETCODE
     filter:
-      - llvm-project/clang/**
-      - llvm-project/llvm/**
+      - llvm-src/clang/**
+      - llvm-src/llvm/**
 
   # ---------- Stage 5: report (runs even if checks fail) ----------
 
