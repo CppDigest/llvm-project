@@ -95,6 +95,7 @@ tasks:
       test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT"; exit 1; }
       cd "$WORKSPACE_ROOT"
 
+      mkdir -p "$WORKSPACE_ROOT/tmp/sccache"
       sccache --zero-stats
       rm -f "$BUILD_DIR/CMakeCache.txt"
 
@@ -117,6 +118,7 @@ tasks:
       - llvm-src/llvm/CMakeLists.txt
       - llvm-src/clang/CMakeLists.txt
       - llvm-src/cmake/**
+      - build/**
       - tmp/sccache/**
       - .rwx/ci.yml
 
@@ -135,6 +137,7 @@ tasks:
       WORKSPACE_ROOT=$(pwd)
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
+      mkdir -p "$WORKSPACE_ROOT/tmp"
 
       ninja -C "$BUILD_DIR" -j2 -k 0 \
         llvm-libraries clang \
@@ -152,6 +155,7 @@ tasks:
     filter:
       - llvm-src/llvm/**
       - llvm-src/clang/**
+      - build/**
       - tmp/sccache/**
 
   # ---------- Stage 4: parallel checks ----------
