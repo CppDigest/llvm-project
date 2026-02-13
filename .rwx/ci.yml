@@ -2,8 +2,9 @@
 # RWX CI — CppDigest/llvm-project (Linux monolithic build)
 #
 # Migrated from .ci/monolithic-linux.sh + GitHub Actions.
-# DAG: clone → deps/sccache → configure → build → parallel checks (llvm, clang) → report
-# Projects: clang only (lld/clang-tools-extra omitted when workspace lacks those dirs)
+# DAG: deps/sccache → clone+configure (single task) → build → parallel checks → report
+# Clone runs inside cmake-configure so Mint passes full tree to cmake (no sparse workspace).
+# Projects: clang only.
 #
 # RWX workflow parameters and packages:
 #   https://github.com/rwx-cloud/packages  — Packages for CI/CD on RWX
@@ -40,24 +41,7 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
-  # ---------- Stage 1: clone + toolchain ----------
-
-  - key: clone-repo
-    timeout: 10m
-    run: |
-      set -e
-      # Clone into a dedicated dir so we never use Mint's sparse llvm-project workspace
-      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-src
-      cd llvm-src
-      git checkout ${{ init.commit-sha }}
-      git config core.sparseCheckout false
-      git sparse-checkout set --no-cone '/*' 2>/dev/null || true
-      git checkout -f ${{ init.commit-sha }}
-      test -f llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake — full tree required"; exit 1; }
-      test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT — full tree required"; exit 1; }
-    cache: false
-    filter:
-      - llvm-src/**
+  # ---------- Stage 1: toolchain ----------
 
   - key: install-build-deps
     timeout: 5m
@@ -84,24 +68,34 @@ tasks:
     filter:
       - .rwx/ci.yml
 
-  # ---------- Stage 2: cmake configure ----------
+  # ---------- Stage 2: clone + cmake (one task so cmake sees full tree) ----------
 
   - key: cmake-configure
-    use: [clone-repo, install-build-deps, install-sccache]
-    timeout: 30m
+    use: [install-build-deps, install-sccache]
+    timeout: 35m
     agent:
       cpus: 2
       memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
+      set -e
       WORKSPACE_ROOT=$(pwd)
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
 
-      sccache --zero-stats
+      # Clone in this same task so cmake runs in the same workspace (full tree)
+      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-src
+      cd llvm-src
+      git checkout ${{ init.commit-sha }}
+      git config core.sparseCheckout false
+      git sparse-checkout set --no-cone '/*' 2>/dev/null || true
+      git checkout -f ${{ init.commit-sha }}
+      test -f llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake"; exit 1; }
+      test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT"; exit 1; }
+      cd "$WORKSPACE_ROOT"
 
-      # Avoid stale CMakeCache requesting projects not in this workflow
+      sccache --zero-stats
       rm -f "$BUILD_DIR/CMakeCache.txt"
 
       cmake -S "$WORKSPACE_ROOT/llvm-src/llvm" -B "$BUILD_DIR" \
