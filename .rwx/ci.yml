@@ -115,9 +115,7 @@ tasks:
         -D LLVM_ENABLE_WERROR=OFF
     cache: true
     filter:
-      - llvm-src/llvm/CMakeLists.txt
-      - llvm-src/clang/CMakeLists.txt
-      - llvm-src/cmake/**
+      - llvm-src/**
       - build/**
       - tmp/sccache/**
       - .rwx/ci.yml
@@ -153,8 +151,7 @@ tasks:
       sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
     cache: true
     filter:
-      - llvm-src/llvm/**
-      - llvm-src/clang/**
+      - llvm-src/**
       - build/**
       - tmp/sccache/**
 
