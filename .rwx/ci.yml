@@ -15,6 +15,11 @@
 #
 # Local test: rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=<repo-clone-url> --init branch=<branch>
 #
+# RWX CLI / MCP — early failure detection & log retrieval:
+#   rwx runs list                          — list recent runs
+#   rwx runs watch <run-id>               — stream live logs
+#   rwx runs logs <run-id> <task-key>     — retrieve task-level logs
+#
 
 on:
   github:
@@ -87,8 +92,11 @@ tasks:
 
       sccache --zero-stats
 
+      # Avoid stale CMakeCache requesting projects not in this workflow (e.g. clang-tools-extra)
+      rm -f "$BUILD_DIR/CMakeCache.txt"
+
       cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
-        -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld" \
+        -D LLVM_ENABLE_PROJECTS="clang;lld" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
         -D LLVM_ENABLE_ASSERTIONS=ON \
@@ -262,6 +270,36 @@ tasks:
         echo "Sccache (build-llvm-core):"
         echo "------------------------------------------------------------"
         cat "$TIMING_DIR/sccache-build.txt"
+      fi
+
+      # ---------- Benchmark: RWX vs GitHub Actions ----------
+      # Baselines from GitHub Actions monolithic-linux (update after first GHA run)
+      GHA_CONFIGURE_S=${GHA_CONFIGURE_S:-0}
+      GHA_BUILD_S=${GHA_BUILD_S:-0}
+      GHA_CHECK_S=${GHA_CHECK_S:-0}
+      GHA_TOTAL_S=${GHA_TOTAL_S:-0}
+
+      if [ "$GHA_TOTAL_S" -gt 0 ] 2>/dev/null; then
+        echo ""
+        echo "Benchmark — RWX vs GitHub Actions:"
+        echo "------------------------------------------------------------"
+        printf "  %-20s %8s %8s %8s\n" "Stage" "GHA(s)" "RWX(s)" "Delta"
+        printf "  %-20s %8s %8s %8s\n" "----" "------" "------" "-----"
+
+        RWX_BUILD=0; RWX_CHECK=0
+        if [ -f "$TIMING_DIR/build-llvm-core.log" ]; then
+          RWX_BUILD=$(cut -d'|' -f1 "$TIMING_DIR/build-llvm-core.log")
+        fi
+        for f in "$TIMING_DIR"/check-*.log; do
+          [ -f "$f" ] && RWX_CHECK=$((RWX_CHECK + $(cut -d'|' -f1 "$f")))
+        done
+
+        printf "  %-20s %8s %8s %+8s\n" "Build" "$GHA_BUILD_S" "$RWX_BUILD" "$((RWX_BUILD - GHA_BUILD_S))"
+        printf "  %-20s %8s %8s %+8s\n" "Checks (seq)" "$GHA_CHECK_S" "$RWX_CHECK" "$((RWX_CHECK - GHA_CHECK_S))"
+        printf "  %-20s %8s %8s %+8s\n" "Total" "$GHA_TOTAL_S" "$TOTAL" "$((TOTAL - GHA_TOTAL_S))"
+      else
+        echo ""
+        echo "Benchmark: Set GHA_CONFIGURE_S, GHA_BUILD_S, GHA_CHECK_S, GHA_TOTAL_S env vars to compare against GitHub Actions."
       fi
     filter:
       - .rwx/ci.yml
