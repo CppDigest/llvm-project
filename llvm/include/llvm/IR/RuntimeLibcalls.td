@@ -2475,7 +2475,7 @@ def __gnu_h2f_ieee : RuntimeLibcallImpl<FPEXT_F16_F32>;
 // hard-float calling convention by default.
 def ARMHalfConvertLibcallCallingConv : LibcallCallingConv<
   [{TT.isWatchABI() ? static_cast<CallingConv::ID>(DefaultCC) :
-    (isAAPCS_ABI(TT, ABIName) ? CallingConv::ARM_AAPCS : CallingConv::ARM_APCS)}]
+    static_cast<CallingConv::ID>(isAAPCS_ABI(TT, ABIName) ? CallingConv::ARM_AAPCS : CallingConv::ARM_APCS)}]
 >;
 
 def ARMLibgccHalfConvertCalls :
