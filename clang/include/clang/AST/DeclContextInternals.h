@@ -84,13 +84,15 @@ class StoredDeclsList {
     if (!Data.getPointer())
       // All declarations are erased.
       return nullptr;
-    else if (isa<NamedDecl *>(NewHead))
+    if (isa<NamedDecl *>(NewHead))
       // The list only contains a declaration, the header itself.
       return (DeclListNode::Decls *)&Data;
-    else {
-      assert(NewLast && isa<NamedDecl *>(*NewLast) && "Not the tail?");
-      return NewLast;
-    }
+    assert(NewLast && isa<NamedDecl *>(*NewLast) && "Not the tail?");
+    // NewLast may point at NewHead when we reduced to a single decl; in that
+    // case return &Data so we never return the address of the local NewHead.
+    if (NewLast == &NewHead)
+      return (DeclListNode::Decls *)&Data;
+    return NewLast;
   }
 
   void erase(NamedDecl *ND) {

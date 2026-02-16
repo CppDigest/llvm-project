@@ -26847,7 +26847,16 @@ SDValue X86TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
   const IntrinsicData* IntrData = getIntrinsicWithoutChain(IntNo);
 
   // Propagate flags from original node to transformed node(s).
+  // FlagInserter is RAII: it restores the previous inserter in its destructor,
+  // so the stored pointer is only used within this scope.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdangling-pointer"
+#endif
   SelectionDAG::FlagInserter FlagsInserter(DAG, Op->getFlags());
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
   if (IntrData) {
     switch(IntrData->Type) {

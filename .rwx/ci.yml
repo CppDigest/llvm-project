@@ -4,12 +4,19 @@
 # Migrated from .ci/monolithic-linux.sh + GitHub Actions.
 # DAG: deps/sccache → clone+configure (single task) → build → parallel checks → report
 # Clone runs inside cmake-configure so Mint passes full tree to cmake (no sparse workspace).
-# Projects: clang only.
+# Linux-only. Matrix (conceptual): single config LLVM_ENABLE_PROJECTS=clang; extend via
+# additional tasks or init vars for more projects/configs if needed.
 #
-# RWX workflow parameters and packages:
-#   https://github.com/rwx-cloud/packages  — Packages for CI/CD on RWX
+# RWX workflow parameters and packages (reference):
+#   https://github.com/rwx-cloud/packages  — Packages for CI/CD on RWX (call:, versions)
 #   https://www.rwx.com/docs/mint          — Mint (workflow) docs
+#   https://www.rwx.com/docs/mint/caching  — Content-based cache; filter drives cache key
 #   https://www.rwx.com/docs/mint/call-packages
+#
+# Caching: Content-based. install-build-deps / install-sccache cache on .rwx/ci.yml.
+# cmake-configure and downstream cache on llvm-src/** + build/** + tmp/sccache/** — so
+# each new commit yields cache misses for configure/build (expected). Use tool caches
+# or TTL if you need periodic refresh (see RWX caching docs).
 #
 # Prerequisites:
 #   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-test) in Vault
@@ -17,10 +24,13 @@
 #
 # Local test: rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=<repo-clone-url> --init branch=<branch>
 #
-# RWX CLI / MCP — early failure detection & log retrieval:
+# RWX CLI / MCP — early failure detection & log retrieval (for optimizer/postmortem):
 #   rwx runs list                          — list recent runs
 #   rwx runs watch <run-id>               — stream live logs
 #   rwx runs logs <run-id> <task-key>     — retrieve task-level logs
+#
+# Session/iteration (optional): set RUN_SESSION and RUN_ITERATION env when invoking
+# (e.g. from .rwx/optimizer.sh) for postmortem_report.py to correlate runs.
 #
 
 on:
@@ -103,11 +113,13 @@ tasks:
         -D LLVM_ENABLE_PROJECTS="clang" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
+        -D CMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG" \
+        -D CMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" \
         -D LLVM_ENABLE_ASSERTIONS=ON \
         -D LLVM_BUILD_EXAMPLES=OFF \
         -D LLVM_LIT_ARGS="-v --xunit-xml-output $BUILD_DIR/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
         -D LLVM_ENABLE_LLD=OFF \
-        -D CMAKE_CXX_FLAGS=-g1 \
+        -D CMAKE_CXX_FLAGS="-g1 -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow" \
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
         -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
@@ -212,17 +224,26 @@ tasks:
     use: [check-llvm, check-clang]
     timeout: 5m
     run: |
+      set -e
+      WORKSPACE_ROOT=$(pwd)
+      TIMING_DIR="$WORKSPACE_ROOT/tmp/timing"
+      mkdir -p "$TIMING_DIR"
+
+      # Log run metadata for postmortem (session/iteration from optimizer or init)
+      RUN_SESSION="${{ init.run_session || 'na' }}"
+      RUN_ITERATION="${{ init.run_iteration || 'na' }}"
+      echo "run_session=$RUN_SESSION run_iteration=$RUN_ITERATION timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TIMING_DIR/run_meta.log"
+
       echo ""
       echo "=== RWX CI PERFORMANCE REPORT — LLVM ==="
       echo ""
 
-      WORKSPACE_ROOT=$(pwd)
-      TIMING_DIR="$WORKSPACE_ROOT/tmp/timing"
-
-      if ls "$TIMING_DIR"/*.log 1>/dev/null 2>&1; then
+      # Task timing logs use format: duration|task_key|SUCCESS| or |FAIL|
+      TIMING_LOGS="$TIMING_DIR/build-llvm-core.log $TIMING_DIR/check-llvm.log $TIMING_DIR/check-clang.log"
+      if for f in $TIMING_LOGS; do [ -f "$f" ] && cat "$f"; done | grep -q .; then
         echo "Task Timings (sorted by duration):"
         echo "------------------------------------------------------------"
-        cat "$TIMING_DIR"/*.log | sort -t'|' -k1 -rn | while IFS='|' read -r duration task status; do
+        for f in $TIMING_LOGS; do [ -f "$f" ] && cat "$f"; done | sort -t'|' -k1 -rn | while IFS='|' read -r duration task status; do
           printf "  %-30s %6ss  [%s]\n" "$task" "$duration" "$status"
         done
         echo ""
@@ -230,14 +251,14 @@ tasks:
         TOTAL=0
         while IFS='|' read -r duration task status; do
           TOTAL=$((TOTAL + duration))
-        done < <(cat "$TIMING_DIR"/*.log)
+        done < <(for f in $TIMING_LOGS; do [ -f "$f" ] && cat "$f"; done)
         echo "Sequential total: ${TOTAL}s"
 
-        FAILURES=$(cat "$TIMING_DIR"/*.log | grep "FAIL" | wc -l)
+        FAILURES=$(for f in $TIMING_LOGS; do [ -f "$f" ] && cat "$f"; done | grep "FAIL" | wc -l)
         if [ "$FAILURES" -gt 0 ]; then
           echo ""
           echo "FAILED:"
-          cat "$TIMING_DIR"/*.log | grep "FAIL" | while IFS='|' read -r d t s; do
+          for f in $TIMING_LOGS; do [ -f "$f" ] && cat "$f"; done | grep "FAIL" | while IFS='|' read -r d t s; do
             echo "  - $t (${d}s)"
           done
         fi
