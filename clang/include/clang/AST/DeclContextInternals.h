@@ -52,6 +52,13 @@ class StoredDeclsList {
     DeclListNode::Decls NewHead = nullptr;
     DeclListNode::Decls *NewLast = nullptr;
     DeclListNode::Decls *NewTail = &NewHead;
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-local-addr"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-local-addr"
+#endif
     while (true) {
       if (!ShouldErase(*DeclListNode::iterator(List))) {
         NewLast = NewTail;
@@ -93,6 +100,11 @@ class StoredDeclsList {
     if (NewLast == &NewHead)
       return (DeclListNode::Decls *)&Data;
     return NewLast;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
   }
 
   void erase(NamedDecl *ND) {
