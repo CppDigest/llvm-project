@@ -13,14 +13,19 @@
 #   https://www.rwx.com/docs/mint/caching  — Content-based cache; filter drives cache key
 #   https://www.rwx.com/docs/mint/call-packages
 #
-# Caching: Content-based. install-build-deps / install-sccache cache on .rwx/ci.yml.
-# cmake-configure and downstream cache on llvm-src/** + build/** + tmp/sccache/** — so
-# each new commit yields cache misses for configure/build (expected). Use tool caches
-# or TTL if you need periodic refresh (see RWX caching docs).
+# Caching: Content-based task cache + tool-cache for incremental builds.
+# install-build-deps / install-sccache cache on .rwx/ci.yml.
+# cmake-configure and build-llvm-core use tool-cache to persist full workspace
+# (llvm-src + build + tmp/sccache). On restore: git pull (not clone) fetches only
+# changed files; ninja does incremental build. Target: 10x–100x speedup on small
+# changes. Requires vault for tool-cache (see RWX tool-caches docs). Increase
+# RWX workspace cache limit if builds are large.
 #
 # Prerequisites:
 #   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-test) in Vault
 #   2. App installed on CppDigest/llvm-project with Contents + PR permissions
+#   3. Vault "cppdigest-llvm-workspace" for tool-cache (persists llvm-src + build).
+#      Create in RWX dashboard; increase cache limit for large workspaces (~10–20GB).
 #
 # Local test: rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=<repo-clone-url> --init branch=<branch>
 #
@@ -94,21 +99,29 @@ tasks:
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
 
-      # Clone in this same task so cmake runs in the same workspace (full tree)
-      git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-src
-      cd llvm-src
-      git checkout ${{ init.commit-sha }}
-      git config core.sparseCheckout false
-      git sparse-checkout set --no-cone '/*' 2>/dev/null || true
-      git checkout -f ${{ init.commit-sha }}
-      test -f llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake"; exit 1; }
-      test -f cmake/Modules/CMakePolicy.cmake || { echo "Missing cmake/Modules/CMakePolicy.cmake (need full llvm-project)"; exit 1; }
-      test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT"; exit 1; }
-      cd "$WORKSPACE_ROOT"
+      # Clone or pull: when tool-cache restores workspace, git fetch fetches only
+      # changed objects (10x–100x faster than full clone on small changes)
+      if [ -d llvm-src/.git ]; then
+        cd llvm-src
+        git fetch origin ${{ init.branch }} --depth 50
+        git checkout -f ${{ init.commit-sha }}
+        cd "$WORKSPACE_ROOT"
+      else
+        git clone --depth 50 --branch ${{ init.branch }} ${{ init.clone-url }} llvm-src
+        cd llvm-src
+        git checkout ${{ init.commit-sha }}
+        git config core.sparseCheckout false
+        git sparse-checkout set --no-cone '/*' 2>/dev/null || true
+        git checkout -f ${{ init.commit-sha }}
+        cd "$WORKSPACE_ROOT"
+      fi
+      test -f llvm-src/llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake"; exit 1; }
+      test -f llvm-src/cmake/Modules/CMakePolicy.cmake || { echo "Missing cmake/Modules/CMakePolicy.cmake (need full llvm-project)"; exit 1; }
+      test -f llvm-src/llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT"; exit 1; }
 
       mkdir -p "$WORKSPACE_ROOT/tmp/sccache"
       sccache --zero-stats
-      rm -f "$BUILD_DIR/CMakeCache.txt"
+      # Do not rm CMakeCache.txt — keep for incremental cmake when tool-cache restores build/
 
       cmake -S "$WORKSPACE_ROOT/llvm-src/llvm" -B "$BUILD_DIR" \
         -D LLVM_ENABLE_PROJECTS="clang" \
@@ -127,6 +140,7 @@ tasks:
         -D CMAKE_INSTALL_PREFIX="$BUILD_DIR/install" \
         -D LLVM_ENABLE_WERROR=OFF
     cache: true
+    tool-cache: vault: cppdigest-llvm-workspace
     filter:
       - llvm-src/**
       - llvm-src/cmake/**
@@ -164,6 +178,7 @@ tasks:
       echo "$((TASK_END - TASK_START))|build-llvm-core|SUCCESS" > "$WORKSPACE_ROOT/tmp/timing/build-llvm-core.log"
       sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
     cache: true
+    tool-cache: vault: cppdigest-llvm-workspace
     filter:
       - llvm-src/**
       - llvm-src/cmake/**
