@@ -55,6 +55,8 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache: "vault: cppdigest-llvm-workspace"
+
 tasks:
   # ---------- Stage 1: toolchain ----------
 
@@ -140,7 +142,6 @@ tasks:
         -D CMAKE_INSTALL_PREFIX="$BUILD_DIR/install" \
         -D LLVM_ENABLE_WERROR=OFF
     cache: true
-    tool-cache: "vault: cppdigest-llvm-workspace"
     filter:
       - llvm-src/**
       - llvm-src/cmake/**
@@ -178,7 +179,6 @@ tasks:
       echo "$((TASK_END - TASK_START))|build-llvm-core|SUCCESS" > "$WORKSPACE_ROOT/tmp/timing/build-llvm-core.log"
       sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
     cache: true
-    tool-cache: "vault: cppdigest-llvm-workspace"
     filter:
       - llvm-src/**
       - llvm-src/cmake/**
