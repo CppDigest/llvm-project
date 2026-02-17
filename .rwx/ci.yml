@@ -102,6 +102,7 @@ tasks:
       git sparse-checkout set --no-cone '/*' 2>/dev/null || true
       git checkout -f ${{ init.commit-sha }}
       test -f llvm/cmake/config-ix.cmake || { echo "Missing llvm/cmake/config-ix.cmake"; exit 1; }
+      test -f cmake/Modules/CMakePolicy.cmake || { echo "Missing cmake/Modules/CMakePolicy.cmake (need full llvm-project)"; exit 1; }
       test -f llvm/LICENSE.TXT || { echo "Missing llvm/LICENSE.TXT"; exit 1; }
       cd "$WORKSPACE_ROOT"
 
@@ -128,6 +129,7 @@ tasks:
     cache: true
     filter:
       - llvm-src/**
+      - llvm-src/cmake/**
       - build/**
       - tmp/sccache/**
       - .rwx/ci.yml
@@ -164,6 +166,7 @@ tasks:
     cache: true
     filter:
       - llvm-src/**
+      - llvm-src/cmake/**
       - build/**
       - tmp/sccache/**
       - tmp/**
@@ -194,6 +197,7 @@ tasks:
       exit $RETCODE
     filter:
       - llvm-src/llvm/**
+      - llvm-src/cmake/**
       - build/**
       - tmp/**
 
@@ -219,6 +223,7 @@ tasks:
     filter:
       - llvm-src/clang/**
       - llvm-src/llvm/**
+      - llvm-src/cmake/**
       - build/**
       - tmp/**
 
