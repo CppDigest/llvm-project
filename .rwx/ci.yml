@@ -55,7 +55,8 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
-tool-cache: "vault: cppdigest-llvm-workspace"
+tool-cache:
+  vault: cppdigest-llvm-workspace
 
 tasks:
   # ---------- Stage 1: toolchain ----------
