@@ -120,7 +120,7 @@ tasks:
         -D LLVM_BUILD_EXAMPLES=OFF \
         -D LLVM_LIT_ARGS="-v --xunit-xml-output $BUILD_DIR/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
         -D LLVM_ENABLE_LLD=OFF \
-        -D CMAKE_CXX_FLAGS="-g1 -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow" \
+        -D CMAKE_CXX_FLAGS="-g1 -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow -Wno-free-nonheap-object -Wno-return-local-addr" \
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
         -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
