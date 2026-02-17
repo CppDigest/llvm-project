@@ -166,6 +166,7 @@ tasks:
       - llvm-src/**
       - build/**
       - tmp/sccache/**
+      - tmp/**
 
   # ---------- Stage 4: parallel checks ----------
   #
@@ -182,17 +183,19 @@ tasks:
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       BUILD_DIR="$WORKSPACE_ROOT/build"
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" check-llvm 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-llvm.log"
+      ninja -C "$BUILD_DIR" check-llvm 2>&1 | tee "$BUILD_DIR/check-llvm.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)
       STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
-      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
       echo "$((TASK_END - TASK_START))|check-llvm|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-llvm.log"
       exit $RETCODE
     filter:
       - llvm-src/llvm/**
+      - build/**
+      - tmp/**
 
   - key: check-clang
     use: [build-llvm-core]
@@ -204,18 +207,20 @@ tasks:
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       BUILD_DIR="$WORKSPACE_ROOT/build"
+      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" check-clang 2>&1 | tee "$WORKSPACE_ROOT/tmp/check-clang.log"
+      ninja -C "$BUILD_DIR" check-clang 2>&1 | tee "$BUILD_DIR/check-clang.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)
       STATUS=$( [ $RETCODE -eq 0 ] && echo "SUCCESS" || echo "FAIL" )
-      mkdir -p "$WORKSPACE_ROOT/tmp/timing"
       echo "$((TASK_END - TASK_START))|check-clang|${STATUS}" > "$WORKSPACE_ROOT/tmp/timing/check-clang.log"
       exit $RETCODE
     filter:
       - llvm-src/clang/**
       - llvm-src/llvm/**
+      - build/**
+      - tmp/**
 
   # ---------- Stage 5: report (runs even if checks fail) ----------
 
@@ -304,3 +309,4 @@ tasks:
       fi
     filter:
       - .rwx/ci.yml
+      - tmp/**
