@@ -53,14 +53,23 @@ def main() -> int:
     gh = Github(token)
     repo = gh.get_repo(args.repo)
 
+    # Find workflow by display name, then use its runs endpoint for
+    # server-side filtering (avoids fetching all runs across the repo).
+    target_workflow = None
+    for wf in repo.get_workflows():
+        if wf.name == args.workflow:
+            target_workflow = wf
+            break
+    if target_workflow is None:
+        print(f"Workflow '{args.workflow}' not found in {args.repo}.", file=sys.stderr)
+        return 1
+
     runs_processed = 0
     job_seconds: dict[str, list[float]] = defaultdict(list)
 
-    for run in repo.get_workflow_runs(status="completed", event=args.event):
+    for run in target_workflow.get_runs(status="completed", event=args.event):
         if runs_processed >= args.runs:
             break
-        if run.name != args.workflow:
-            continue
 
         for job in run.jobs():
             if job.status != "completed" or not job.completed_at or not job.started_at:
