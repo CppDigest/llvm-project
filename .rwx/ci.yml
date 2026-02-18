@@ -216,6 +216,7 @@ tasks:
       - llvm-src/clang/**
       - llvm-src/cmake/**
       - llvm-src/third-party/**
+      - llvm-src/.git/**
       - build/**
       - tmp/**
 
@@ -243,6 +244,7 @@ tasks:
       - llvm-src/llvm/**
       - llvm-src/cmake/**
       - llvm-src/third-party/**
+      - llvm-src/.git/**
       - build/**
       - tmp/**
 
