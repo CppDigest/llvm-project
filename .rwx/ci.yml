@@ -138,7 +138,7 @@ tasks:
         -D LLVM_ENABLE_LLD=OFF \
         -D CMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
         -D CMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
-        -D CMAKE_CXX_FLAGS="-g1 -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow -Wno-free-nonheap-object -Wno-return-local-addr" \
+        -D CMAKE_CXX_FLAGS="-g1 -fuse-ld=lld -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow -Wno-free-nonheap-object -Wno-return-local-addr" \
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
         -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
@@ -159,7 +159,7 @@ tasks:
     timeout: 360m
     agent:
       cpus: 2
-      memory: 16GB
+      memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
@@ -199,14 +199,14 @@ tasks:
     timeout: 60m
     agent:
       cpus: 2
-      memory: 16GB
+      memory: 8GB
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       BUILD_DIR="$WORKSPACE_ROOT/build"
       mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" check-llvm 2>&1 | tee "$BUILD_DIR/check-llvm.log"
+      ninja -C "$BUILD_DIR" -j1 check-llvm 2>&1 | tee "$BUILD_DIR/check-llvm.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)
@@ -227,14 +227,14 @@ tasks:
     timeout: 60m
     agent:
       cpus: 2
-      memory: 16GB
+      memory: 8GB
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       BUILD_DIR="$WORKSPACE_ROOT/build"
       mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" check-clang 2>&1 | tee "$BUILD_DIR/check-clang.log"
+      ninja -C "$BUILD_DIR" -j1 check-clang 2>&1 | tee "$BUILD_DIR/check-clang.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)
