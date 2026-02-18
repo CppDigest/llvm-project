@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${REPO_ROOT}/build"
 
+cd "$REPO_ROOT"
+
 configure() {
     cmake -G Ninja -B "${BUILD_DIR}" -S "${REPO_ROOT}/llvm" \
         -DCMAKE_BUILD_TYPE=Release \

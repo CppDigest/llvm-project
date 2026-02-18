@@ -77,7 +77,7 @@ env:
   CMAKE_C_COMPILER_LAUNCHER: sccache
   CMAKE_CXX_COMPILER_LAUNCHER: sccache
 steps:
-  - uses: mozilla-actions/sccache-action@v0.0.6
+  - uses: mozilla-actions/sccache-action@v0.0.9
   - name: Log sccache stats
     run: sccache --show-stats
     if: always()
@@ -102,7 +102,7 @@ on:
 
 | Aspect | Details |
 |--------|---------|
-| Problem | CMake configure takes ~20 min (50% of clean-build time) |
+| Problem | CMake configure takes ~20 min (~17% of pipeline time) |
 | Change | `CMakePresets.json` with defaults; cache `CMakeCache.txt` between runs |
 | Location | Root `CMakePresets.json`, `.ci/` scripts |
 | Validation | Measure configure time before/after |

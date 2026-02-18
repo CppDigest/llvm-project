@@ -45,13 +45,17 @@ def main() -> int:
         return 1
 
     try:
-        from github import Github
+        from github import Github, GithubException
     except ImportError:
         print("Install PyGithub: pip install PyGithub", file=sys.stderr)
         return 1
 
-    gh = Github(token)
-    repo = gh.get_repo(args.repo)
+    try:
+        gh = Github(token)
+        repo = gh.get_repo(args.repo)
+    except GithubException as e:
+        print(f"GitHub API error: {e.data.get('message', e)}", file=sys.stderr)
+        return 1
 
     # Find workflow by display name, then use its runs endpoint for
     # server-side filtering (avoids fetching all runs across the repo).

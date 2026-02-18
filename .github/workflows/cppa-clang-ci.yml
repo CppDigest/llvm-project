@@ -29,7 +29,7 @@ jobs:
             third-party
             .ci
 
-      - uses: mozilla-actions/sccache-action@v0.0.6
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure
         run: bash .ci/build.sh configure
@@ -57,7 +57,7 @@ jobs:
             third-party
             .ci
 
-      - uses: mozilla-actions/sccache-action@v0.0.6
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure
         run: |
@@ -74,8 +74,7 @@ jobs:
         shell: cmd
 
       - name: Test
-        run: ninja -C build check-clang
-        shell: cmd
+        run: bash .ci/run-tests.sh --retry
 
       - name: sccache stats
         run: sccache --show-stats

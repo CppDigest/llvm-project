@@ -56,13 +56,23 @@ def parse_duration(started, completed):
     return (end - start).total_seconds() / 60.0
 
 
+def api_get_paginated(endpoint, token, items_key, per_page=100):
+    """Fetch all pages from a paginated GitHub API endpoint."""
+    items = []
+    page = 1
+    while True:
+        sep = "&" if "?" in endpoint else "?"
+        data = api_get(f"{endpoint}{sep}per_page={per_page}&page={page}", token)
+        batch = data.get(items_key, [])
+        items.extend(batch)
+        if len(batch) < per_page:
+            break
+        page += 1
+    return items
+
+
 def list_workflows(repo, token):
-    data = api_get(f"/repos/{repo}/actions/workflows?per_page=100", token)
-    workflows = data.get("workflows", [])
-    total = data.get("total_count", 0)
-    if total > 100:
-        print(f"Warning: {total} workflows but only first 100 returned.", file=sys.stderr)
-    return workflows
+    return api_get_paginated(f"/repos/{repo}/actions/workflows", token, "workflows")
 
 
 def get_workflow_runs(repo, workflow_file, token, count=10):
@@ -73,13 +83,9 @@ def get_workflow_runs(repo, workflow_file, token, count=10):
 
 
 def get_run_jobs(repo, run_id, token):
-    data = api_get(f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", token)
-    jobs = data.get("jobs", [])
-    total = data.get("total_count", 0)
-    if total > 100:
-        print(f"Warning: run {run_id} has {total} jobs but only first 100 returned.",
-              file=sys.stderr)
-    return jobs
+    return api_get_paginated(
+        f"/repos/{repo}/actions/runs/{run_id}/jobs", token, "jobs"
+    )
 
 
 def analyze_run(repo, run, token):
