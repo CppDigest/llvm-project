@@ -56,24 +56,22 @@ def main() -> int:
     runs_processed = 0
     job_seconds: dict[str, list[float]] = defaultdict(list)
 
-    for run in repo.get_workflow_runs():
+    for run in repo.get_workflow_runs(status="completed", event=args.event):
         if runs_processed >= args.runs:
             break
-        if run.event != args.event:
-            continue
-        if run.status != "completed":
-            continue
         if run.name != args.workflow:
             continue
 
         for job in run.jobs():
             if job.status != "completed" or not job.completed_at or not job.started_at:
                 continue
-            if job.started_at.tzinfo is None:
-                job.started_at = job.started_at.replace(tzinfo=timezone.utc)
-            if job.completed_at.tzinfo is None:
-                job.completed_at = job.completed_at.replace(tzinfo=timezone.utc)
-            duration = (job.completed_at - job.started_at).total_seconds()
+            started = job.started_at
+            completed = job.completed_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            if completed.tzinfo is None:
+                completed = completed.replace(tzinfo=timezone.utc)
+            duration = (completed - started).total_seconds()
             if duration <= 0:
                 continue
             job_seconds[job.name].append(duration)

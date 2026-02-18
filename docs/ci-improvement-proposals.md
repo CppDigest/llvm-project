@@ -36,7 +36,7 @@ P1, P2, P3 are the quickest to try; see Appendix A.
 
 ## Phased Roadmap
 
-```
+```text
  Week 1-2 (Do Now)          Month 1-2 (Do Next)          Month 3+ (Later)
 ┌──────────────────┐       ┌──────────────────┐        ┌──────────────────┐
 │ P1: sccache opt  │       │ P4: Flake quarnt │        │ P7: Self-hosted  │
@@ -88,15 +88,14 @@ steps:
 | Aspect | Details |
 |--------|---------|
 | Problem | Pre-merge runs even when only docs or unrelated subprojects change; no path-level skip |
-| Change | Add `paths`/`paths-ignore` filters so workflow can be skipped when only filtered paths change |
+| Change | Add `paths` filters so workflow can be skipped when only non-matching paths change |
 | Location | `.github/workflows/premerge.yaml` trigger section |
 | Validation | Track % of PRs skipping builds; no regressions in merged code |
 
 ```yaml
 on:
   pull_request:
-    paths: ['clang/**', 'llvm/**', 'cmake/**']
-    paths-ignore: ['**/*.md', 'lldb/**', 'openmp/**']
+    paths: ['clang/**', 'llvm/**', 'cmake/**', '.ci/**']
 ```
 
 ### P3: CMake Presets + Config Cache
@@ -117,7 +116,7 @@ on:
 | Location | `.ci/flaky-tests.txt`, test runner wrapper |
 | Validation | Re-run rate before/after; target <1 spurious/day |
 
-```
+```text
   Test fails ──→ Auto-retry (1x) ──→ Pass? ──→ Mark FLAKY (quarantine)
       │                                 No
       v                                 v
@@ -168,7 +167,7 @@ on:
 | Location | `.github/workflows/`, webhook integrations |
 | Validation | Mean-time-to-resolution; developer satisfaction |
 
-```
+```text
   CI Fail ──→ Classify ──→ Known flake? ──→ Auto-retry
                                 No
                                 v
@@ -194,9 +193,9 @@ The live blueprint is [.github/workflows/cppa-clang-ci.yml](../.github/workflows
 | Aspect | Choice |
 |--------|--------|
 | Trigger | `pull_request` with path filters (clang, llvm, cmake, .ci, this workflow); `push` to main/release |
-| Paths | `paths` + `paths-ignore` (e.g. `**/*.md`, lldb, openmp) so many PRs skip the workflow |
+| Paths | `paths` filter (clang, llvm, cmake, .ci, this workflow) so many PRs skip the workflow |
 | Env | `SCCACHE_GHA_ENABLED`, `SCCACHE_IDLE_TIMEOUT=0` |
 | Linux | checkout (sparse) → sccache-action → `.ci/build.sh configure` → `.ci/build.sh build` → `.ci/run-tests.sh --retry` → sccache stats; 90 min timeout |
-| Windows | checkout (sparse) → sccache → cmake (preset `ci-release`) → ninja build/test → sccache stats; 120 min timeout |
+| Windows | checkout (sparse) → sccache → cmake (explicit flags, `-S llvm -B build`) → ninja build/test → sccache stats; 120 min timeout |
 
 Inline YAML snippets (no .ci scripts) are in Appendix A (P1–P3).

@@ -38,10 +38,13 @@ def api_get(endpoint, token):
         "User-Agent": "llvm-ci-analyzer",
     })
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         print(f"API error {e.code}: {e.reason} — {url}", file=sys.stderr)
+        return {}
+    except urllib.error.URLError as e:
+        print(f"Network error: {e.reason} — {url}", file=sys.stderr)
         return {}
 
 
@@ -55,7 +58,11 @@ def parse_duration(started, completed):
 
 def list_workflows(repo, token):
     data = api_get(f"/repos/{repo}/actions/workflows?per_page=100", token)
-    return data.get("workflows", [])
+    workflows = data.get("workflows", [])
+    total = data.get("total_count", 0)
+    if total > 100:
+        print(f"Warning: {total} workflows but only first 100 returned.", file=sys.stderr)
+    return workflows
 
 
 def get_workflow_runs(repo, workflow_file, token, count=10):
@@ -67,7 +74,12 @@ def get_workflow_runs(repo, workflow_file, token, count=10):
 
 def get_run_jobs(repo, run_id, token):
     data = api_get(f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", token)
-    return data.get("jobs", [])
+    jobs = data.get("jobs", [])
+    total = data.get("total_count", 0)
+    if total > 100:
+        print(f"Warning: run {run_id} has {total} jobs but only first 100 returned.",
+              file=sys.stderr)
+    return jobs
 
 
 def analyze_run(repo, run, token):
@@ -181,13 +193,16 @@ def print_aggregate(analyses):
 
 
 def export_json(analyses, path):
-    with open(path, "w") as f:
-        json.dump({
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "count": len(analyses),
-            "runs": analyses,
-        }, f, indent=2)
-    print(f"Exported {len(analyses)} runs to {path}")
+    try:
+        with open(path, "w") as f:
+            json.dump({
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "count": len(analyses),
+                "runs": analyses,
+            }, f, indent=2)
+        print(f"Exported {len(analyses)} runs to {path}")
+    except OSError as e:
+        print(f"Error writing {path}: {e}", file=sys.stderr)
 
 
 def main():
@@ -207,7 +222,7 @@ def main():
         workflows = list_workflows(args.repo, token)
         if not workflows:
             print("No workflows found.")
-            return
+            return 1
         print(f"\n{'#':<4} {'Name':<{COL_WIDTH}} {'State':<10} File")
         print("-" * 90)
         for i, wf in enumerate(workflows, 1):
@@ -218,13 +233,13 @@ def main():
         print(f"\n{len(workflows)} workflows total")
         if not args.workflow:
             print("Use --workflow <filename> to analyze a specific one.")
-        return
+        return 0
 
     print(f"Fetching last {args.runs} completed runs of '{args.workflow}'...")
     runs = get_workflow_runs(args.repo, args.workflow, token, args.runs)
     if not runs:
         print(f"No completed runs found for '{args.workflow}'.")
-        return
+        return 1
 
     print(f"Analyzing {len(runs)} runs...")
     analyses = []
@@ -238,6 +253,8 @@ def main():
     if args.json:
         export_json(analyses, args.json)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

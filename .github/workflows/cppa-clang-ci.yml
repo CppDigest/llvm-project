@@ -8,10 +8,6 @@ on:
       - 'cmake/**'
       - '.ci/**'
       - '.github/workflows/cppa-clang-ci.yml'
-    paths-ignore:
-      - '**/*.md'
-      - 'lldb/**'
-      - 'openmp/**'
   push:
     branches: [main, 'release/**']
 
@@ -63,9 +59,12 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -G Ninja -B build ^
-            --preset ci-release ^
-            -DLLVM_TARGETS_TO_BUILD="X86"
+          cmake -G Ninja -B build -S llvm ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DLLVM_ENABLE_PROJECTS=clang ^
+            -DLLVM_TARGETS_TO_BUILD="X86" ^
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache ^
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
         shell: cmd
 
       - name: Build

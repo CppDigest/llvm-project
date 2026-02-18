@@ -22,7 +22,7 @@
 
 ## 1. PR Lifecycle
 
-```
+```text
   PR opened
       │
       ├──→ [Label & Format]  ──→ pr-subscriber, labelling, clang-format  (~seconds)
@@ -58,7 +58,7 @@
 
 Phase breakdown below is from external measurement (see Appendix B ref 7); timeouts in repo are 120 min (Linux) and 180 min (Windows) per `premerge.yaml`.
 
-```
+```text
  Phase             Time     Share
  ─────────────────────────────────────────────────────
  Checkout + deps    5 min    4%   ██
@@ -166,7 +166,7 @@ Options: `--repo`, `--workflow`, `--runs`, `--event`. See Appendix C for how to 
 
 ## Appendix A: Repository Structure
 
-```
+```text
 llvm-project/               ~9M lines total, ~2.5M C++ core
 ├── .github/workflows/      ~48 workflow YAML files
 ├── .ci/                    CI helper scripts
