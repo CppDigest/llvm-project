@@ -213,7 +213,9 @@ tasks:
       exit $RETCODE
     filter:
       - llvm-src/llvm/**
+      - llvm-src/clang/**
       - llvm-src/cmake/**
+      - llvm-src/third-party/**
       - build/**
       - tmp/**
 
@@ -240,6 +242,7 @@ tasks:
       - llvm-src/clang/**
       - llvm-src/llvm/**
       - llvm-src/cmake/**
+      - llvm-src/third-party/**
       - build/**
       - tmp/**
 
