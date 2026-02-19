@@ -326,7 +326,7 @@ MATCHER_P2(AreLiveAtImpl, Annotation, ConfFilter, "") {
     return false;
   }
   std::vector<OriginID> ActualLiveOrigins;
-  for (const auto [OID, ActualConfidence] : ActualLiveSetOpt.value()) {
+  for (const auto &[OID, ActualConfidence] : ActualLiveSetOpt.value()) {
     if (ConfFilter == LivenessKindFilter::All)
       ActualLiveOrigins.push_back(OID);
     if (ActualConfidence == LivenessKind::Maybe &&

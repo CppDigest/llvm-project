@@ -169,7 +169,7 @@ tasks:
       BUILD_DIR="$WORKSPACE_ROOT/build"
       mkdir -p "$WORKSPACE_ROOT/tmp"
 
-      ninja -C "$BUILD_DIR" -j1 -k 0 \
+      ninja -C "$BUILD_DIR" -j2 -k 0 \
         llvm-libraries clang \
         llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
         2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-core.log"
@@ -196,7 +196,7 @@ tasks:
 
   - key: check-llvm
     use: [build-llvm-core]
-    timeout: 60m
+    timeout: 90m
     agent:
       cpus: 2
       memory: 8GB
@@ -206,7 +206,7 @@ tasks:
       BUILD_DIR="$WORKSPACE_ROOT/build"
       mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" -j1 check-llvm 2>&1 | tee "$BUILD_DIR/check-llvm.log"
+      ninja -C "$BUILD_DIR" -j2 check-llvm 2>&1 | tee "$BUILD_DIR/check-llvm.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)
@@ -224,7 +224,7 @@ tasks:
 
   - key: check-clang
     use: [build-llvm-core]
-    timeout: 60m
+    timeout: 90m
     agent:
       cpus: 2
       memory: 8GB
@@ -234,7 +234,7 @@ tasks:
       BUILD_DIR="$WORKSPACE_ROOT/build"
       mkdir -p "$WORKSPACE_ROOT/tmp/timing"
 
-      ninja -C "$BUILD_DIR" -j1 check-clang 2>&1 | tee "$BUILD_DIR/check-clang.log"
+      ninja -C "$BUILD_DIR" -j2 check-clang 2>&1 | tee "$BUILD_DIR/check-clang.log"
       RETCODE=${PIPESTATUS[0]}
 
       TASK_END=$(date +%s)

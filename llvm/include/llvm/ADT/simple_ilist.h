@@ -209,9 +209,9 @@ public:
   /// Remove a node by iterator and dispose of it.
   template <class Disposer>
   iterator eraseAndDispose(iterator I, Disposer dispose) {
-    auto Next = std::next(I);
-    erase(I);
-    dispose(&*I);
+    pointer NodePtr = &*I;
+    auto Next = erase(I);
+    dispose(NodePtr);
     return Next;
   }
 
