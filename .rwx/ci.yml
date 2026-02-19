@@ -266,8 +266,8 @@ tasks:
       mkdir -p "$TIMING_DIR"
 
       # Log run metadata for postmortem (session/iteration from optimizer or init)
-      RUN_SESSION="${{ init.run_session || 'na' }}"
-      RUN_ITERATION="${{ init.run_iteration || 'na' }}"
+      RUN_SESSION="${{ init.run_session }}"
+      RUN_ITERATION="${{ init.run_iteration }}"
       echo "run_session=$RUN_SESSION run_iteration=$RUN_ITERATION timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TIMING_DIR/run_meta.log"
 
       echo ""
