@@ -53,7 +53,7 @@ P1, P2, P3 are the quickest to try; see Appendix A.
 |--------|----------|----------|----------|----------|
 | First signal time | ~120 min | < 60 min | < 30 min | < 15 min |
 | sccache hit rate | Unknown | > 80% | > 85% | > 90% |
-| Flake re-runs/day | ~5+ | ~5 | < 1 | < 1 |
+| Flake re-runs/day | ~5+ | ~5+ | < 1 | < 1 |
 | Build time (warm) | 120 min | 60 min | 30 min | 15 min |
 | Agent-resolved | 0% | 0% | 0% | 60%+ |
 

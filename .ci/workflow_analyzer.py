@@ -54,42 +54,48 @@ def main() -> int:
         gh = Github(token)
         repo = gh.get_repo(args.repo)
     except GithubException as e:
-        print(f"GitHub API error: {e.data.get('message', e)}", file=sys.stderr)
+        msg = e.data.get("message", str(e)) if e.data else str(e)
+        print(f"GitHub API error: {msg}", file=sys.stderr)
         return 1
 
     # Find workflow by display name, then use its runs endpoint for
     # server-side filtering (avoids fetching all runs across the repo).
-    target_workflow = None
-    for wf in repo.get_workflows():
-        if wf.name == args.workflow:
-            target_workflow = wf
-            break
-    if target_workflow is None:
-        print(f"Workflow '{args.workflow}' not found in {args.repo}.", file=sys.stderr)
+    try:
+        target_workflow = None
+        for wf in repo.get_workflows():
+            if wf.name == args.workflow:
+                target_workflow = wf
+                break
+        if target_workflow is None:
+            print(f"Workflow '{args.workflow}' not found in {args.repo}.", file=sys.stderr)
+            return 1
+
+        runs_processed = 0
+        job_seconds: dict[str, list[float]] = defaultdict(list)
+
+        for run in target_workflow.get_runs(status="completed", event=args.event):
+            if runs_processed >= args.runs:
+                break
+
+            for job in run.jobs():
+                if job.status != "completed" or not job.completed_at or not job.started_at:
+                    continue
+                started = job.started_at
+                completed = job.completed_at
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                if completed.tzinfo is None:
+                    completed = completed.replace(tzinfo=timezone.utc)
+                duration = (completed - started).total_seconds()
+                if duration <= 0:
+                    continue
+                job_seconds[job.name].append(duration)
+
+            runs_processed += 1
+    except GithubException as e:
+        msg = e.data.get("message", str(e)) if e.data else str(e)
+        print(f"GitHub API error: {msg}", file=sys.stderr)
         return 1
-
-    runs_processed = 0
-    job_seconds: dict[str, list[float]] = defaultdict(list)
-
-    for run in target_workflow.get_runs(status="completed", event=args.event):
-        if runs_processed >= args.runs:
-            break
-
-        for job in run.jobs():
-            if job.status != "completed" or not job.completed_at or not job.started_at:
-                continue
-            started = job.started_at
-            completed = job.completed_at
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
-            if completed.tzinfo is None:
-                completed = completed.replace(tzinfo=timezone.utc)
-            duration = (completed - started).total_seconds()
-            if duration <= 0:
-                continue
-            job_seconds[job.name].append(duration)
-
-        runs_processed += 1
 
     if runs_processed == 0:
         print(f"No completed runs found for workflow '{args.workflow}', event={args.event}.", file=sys.stderr)

@@ -76,10 +76,20 @@ def list_workflows(repo, token):
 
 
 def get_workflow_runs(repo, workflow_file, token, count=10):
+    per_page = min(count, 100)
     endpoint = (f"/repos/{repo}/actions/workflows/{workflow_file}"
-                f"/runs?per_page={count}&status=completed")
-    data = api_get(endpoint, token)
-    return data.get("workflow_runs", [])
+                f"/runs?per_page={per_page}&status=completed")
+    runs = []
+    page = 1
+    while len(runs) < count:
+        sep = "&" if "?" in endpoint else "?"
+        data = api_get(f"{endpoint}{sep}page={page}", token)
+        batch = data.get("workflow_runs", [])
+        runs.extend(batch)
+        if len(batch) < per_page:
+            break
+        page += 1
+    return runs[:count]
 
 
 def get_run_jobs(repo, run_id, token):
