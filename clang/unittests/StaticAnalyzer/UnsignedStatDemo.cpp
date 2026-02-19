@@ -43,8 +43,9 @@ public:
       DemoStat.set(1);
     else if (Name == "func_two")
       DemoStat.set(2);
-    else
-      ; // For any other function (e.g., "func_none") don't set the statistic
+    else {
+      // For any other function (e.g., "func_none") don't set the statistic
+    }
   }
 };
 

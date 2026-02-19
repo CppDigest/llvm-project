@@ -436,7 +436,7 @@ TEST(MachineOperandTest, HashValue) {
   char SymName2[] = "test";
   MachineOperand MO1 = MachineOperand::CreateES(SymName1);
   MachineOperand MO2 = MachineOperand::CreateES(SymName2);
-  ASSERT_NE(SymName1, SymName2);
+  ASSERT_NE(+SymName1, +SymName2);
   ASSERT_EQ(hash_value(MO1), hash_value(MO2));
   ASSERT_TRUE(MO1.isIdenticalTo(MO2));
 }

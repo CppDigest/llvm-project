@@ -209,10 +209,19 @@ public:
   /// Remove a node by iterator and dispose of it.
   template <class Disposer>
   iterator eraseAndDispose(iterator I, Disposer dispose) {
-    auto Next = std::next(I);
-    erase(I);
-    dispose(&*I);
+    pointer NodePtr = &*I;
+    auto Next = erase(I);
+    dispose(NodePtr);
+    // Next points to the following node (still in the list), not the deleted one.
+    // Suppress false positive -Wuse-after-free from conservative compiler analysis.
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
     return Next;
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
   }
 
   /// Remove a range of nodes and dispose of them.
