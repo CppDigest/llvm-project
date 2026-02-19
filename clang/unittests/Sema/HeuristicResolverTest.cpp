@@ -61,7 +61,7 @@ void expectResolution(llvm::StringRef Code, ResolveFnT<ParamT> ResolveFn,
   const auto *Input = InputMatches[0].template getNodeAs<InputNode>("input");
   ASSERT_TRUE(Input);
 
-  auto OutputNodeMatches = [&](auto &OutputMatcher, auto &Actual) {
+  [[maybe_unused]] auto OutputNodeMatches = [&](auto &OutputMatcher, auto &Actual) {
     auto OutputMatches = match(OutputMatcher, Ctx);
     if (OutputMatches.size() != 1u)
       return false;

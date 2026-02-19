@@ -253,7 +253,6 @@ tasks:
   # ---------- Stage 5: report (runs even if checks fail) ----------
 
   - key: performance-analysis
-    after: ${{ (check-llvm.succeeded || check-llvm.failed) && (check-clang.succeeded || check-clang.failed) }}
     use: [check-llvm, check-clang]
     timeout: 5m
     run: |
