@@ -45,11 +45,15 @@ on:
         commit-sha: ${{ event.git.sha }}
         clone-url: ${{ event.github.push.repository.clone_url }}
         branch: ${{ event.git.branch }}
+        run_session: 'na'
+        run_iteration: 'na'
     pull_request:
       init:
         commit-sha: ${{ event.git.sha }}
         clone-url: ${{ event.github.pull_request.pull_request.head.repo.clone_url }}
         branch: ${{ event.git.branch }}
+        run_session: 'na'
+        run_iteration: 'na'
 
 base:
   image: ubuntu:24.04
@@ -306,7 +310,8 @@ tasks:
       fi
 
       # ---------- Benchmark: RWX vs GitHub Actions ----------
-      # Baselines from GitHub Actions monolithic-linux (update after first GHA run)
+      # Load baseline from .rwx/gha-baseline.env if present (populated from GHA run)
+      [ -f "$WORKSPACE_ROOT/.rwx/gha-baseline.env" ] && . "$WORKSPACE_ROOT/.rwx/gha-baseline.env"
       GHA_CONFIGURE_S=${GHA_CONFIGURE_S:-0}
       GHA_BUILD_S=${GHA_BUILD_S:-0}
       GHA_CHECK_S=${GHA_CHECK_S:-0}
@@ -333,6 +338,7 @@ tasks:
       else
         echo ""
         echo "Benchmark: Set GHA_CONFIGURE_S, GHA_BUILD_S, GHA_CHECK_S, GHA_TOTAL_S env vars to compare against GitHub Actions."
+        echo "Reference: Check upstream llvm-project GHA history — https://github.com/llvm/llvm-project/actions"
       fi
     filter:
       - .rwx/ci.yml

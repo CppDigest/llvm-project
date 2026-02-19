@@ -102,6 +102,7 @@ def main():
     out.append("")
     out.append("- Correlate with RWX run logs: `rwx runs list` then `rwx runs logs <run-id> <task-key>`.")
     out.append("- Correlate with `rwx runs logs` for full failure logs.")
+    out.append("- When writing reports: check upstream llvm-project GitHub Actions history for reference: https://github.com/llvm/llvm-project/actions")
     out.append("")
 
     report = "\n".join(out)
