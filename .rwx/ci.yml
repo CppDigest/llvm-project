@@ -204,6 +204,11 @@ tasks:
     agent:
       cpus: 2
       memory: 8GB
+    outputs:
+      filesystem: false
+      artifacts:
+        - key: timing
+          path: tmp/timing
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
@@ -232,6 +237,11 @@ tasks:
     agent:
       cpus: 2
       memory: 8GB
+    outputs:
+      filesystem: false
+      artifacts:
+        - key: timing
+          path: tmp/timing
     run: |
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
@@ -264,6 +274,10 @@ tasks:
       WORKSPACE_ROOT=$(pwd)
       TIMING_DIR="$WORKSPACE_ROOT/tmp/timing"
       mkdir -p "$TIMING_DIR"
+
+      # Copy only timing artifacts (not full task output) to stay under disk quota
+      cp -a "${{ tasks.check-llvm.artifacts.timing }}"/* "$TIMING_DIR/" 2>/dev/null || true
+      cp -a "${{ tasks.check-clang.artifacts.timing }}"/* "$TIMING_DIR/" 2>/dev/null || true
 
       # Log run metadata for postmortem (session/iteration from optimizer or init)
       RUN_SESSION="${{ init.run_session }}"
