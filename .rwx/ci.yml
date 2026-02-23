@@ -267,6 +267,8 @@ tasks:
     use: [check-llvm, check-clang]
     timeout: 5m
     run: |
+      set +e
+      set +o pipefail
       WORKSPACE_ROOT=$(pwd)
       TIMING_DIR="$WORKSPACE_ROOT/tmp/timing"
       mkdir -p "$TIMING_DIR"
