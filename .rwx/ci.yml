@@ -322,7 +322,7 @@ tasks:
 
       # ---------- Benchmark: RWX vs GitHub Actions ----------
       # Load baseline from .rwx/gha-baseline.env if present (populated from GHA run)
-      [ -f "$WORKSPACE_ROOT/.rwx/gha-baseline.env" ] && . "$WORKSPACE_ROOT/.rwx/gha-baseline.env"
+      if [ -f "$WORKSPACE_ROOT/.rwx/gha-baseline.env" ]; then . "$WORKSPACE_ROOT/.rwx/gha-baseline.env"; fi
       GHA_CONFIGURE_S=${GHA_CONFIGURE_S:-0}
       GHA_BUILD_S=${GHA_BUILD_S:-0}
       GHA_CHECK_S=${GHA_CHECK_S:-0}
