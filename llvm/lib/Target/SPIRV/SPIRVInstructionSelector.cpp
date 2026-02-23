@@ -2889,8 +2889,7 @@ bool SPIRVInstructionSelector::selectWaveReduceMax(Register ResVReg,
             GR.isScalarOrVectorOfType(InputRegister, SPIRV::OpTypeFloat);
         const unsigned IntOp = IsUnsigned ? SPIRV::OpGroupNonUniformUMax
                                           : SPIRV::OpGroupNonUniformSMax;
-        return IsFloatTy ? static_cast<unsigned>(SPIRV::OpGroupNonUniformFMax)
-                        : IntOp;
+        return IsFloatTy ? SPIRV::OpGroupNonUniformFMax : IntOp;
       });
 }
 
@@ -2905,8 +2904,7 @@ bool SPIRVInstructionSelector::selectWaveReduceMin(Register ResVReg,
             GR.isScalarOrVectorOfType(InputRegister, SPIRV::OpTypeFloat);
         const unsigned IntOp = IsUnsigned ? SPIRV::OpGroupNonUniformUMin
                                           : SPIRV::OpGroupNonUniformSMin;
-        return IsFloatTy ? static_cast<unsigned>(SPIRV::OpGroupNonUniformFMin)
-                        : IntOp;
+        return IsFloatTy ? SPIRV::OpGroupNonUniformFMin : IntOp;
       });
 }
 

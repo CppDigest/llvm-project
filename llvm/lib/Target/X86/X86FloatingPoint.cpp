@@ -609,9 +609,7 @@ void FPS::finishBlockStack() {
     // Not fixed yet, we get to choose.
     LLVM_DEBUG(dbgs() << "Fixing stack order now.\n");
     Bundle.FixCount = StackTop;
-    const unsigned FixStackSize = sizeof(Bundle.FixStack) / sizeof(Bundle.FixStack[0]);
-    const unsigned N = std::min(StackTop, FixStackSize);
-    for (unsigned i = 0; i < N; ++i)
+    for (unsigned i = 0; i < StackTop; ++i)
       Bundle.FixStack[i] = getStackEntry(i);
   }
 }

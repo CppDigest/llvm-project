@@ -441,20 +441,7 @@ enum class TemplateSubstitutionKind : char {
         : SemaRef(SemaRef), Outer(SemaRef.CurrentInstantiationScope),
           CombineWithOuterScope(CombineWithOuterScope),
           InstantiatingLambdaOrBlock(InstantiatingLambdaOrBlock) {
-      // RAII: destructor restores SemaRef.CurrentInstantiationScope to Outer.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdangling-pointer"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdangling-pointer"
-#endif
       SemaRef.CurrentInstantiationScope = this;
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
     }
 
     LocalInstantiationScope(const LocalInstantiationScope &) = delete;

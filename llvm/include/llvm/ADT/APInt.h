@@ -189,16 +189,8 @@ public:
 
   /// Destructor.
   ~APInt() {
-    if (needsCleanup()) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wfree-nonheap-object"
-#endif
+    if (needsCleanup())
       delete[] U.pVal;
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-    }
   }
 
   /// @}

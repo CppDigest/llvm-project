@@ -12,7 +12,6 @@
 #include "WhitespaceManager.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
-#include <type_traits>
 
 #define DEBUG_TYPE "format-formatter"
 
@@ -644,7 +643,7 @@ private:
       const auto N = MergedLines + LinesToBeMerged;
       // Check if there is even a line after the inner result.
       if (auto Distance = std::distance(I, E);
-          static_cast<std::remove_cv_t<decltype(N)>>(Distance) <= N) {
+          static_cast<decltype(N)>(Distance) <= N) {
         return 0;
       }
       // Check that the line after the inner result starts with a closing brace

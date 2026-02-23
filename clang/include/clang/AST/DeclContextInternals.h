@@ -52,13 +52,6 @@ class StoredDeclsList {
     DeclListNode::Decls NewHead = nullptr;
     DeclListNode::Decls *NewLast = nullptr;
     DeclListNode::Decls *NewTail = &NewHead;
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wreturn-local-addr"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-local-addr"
-#endif
     while (true) {
       if (!ShouldErase(*DeclListNode::iterator(List))) {
         NewLast = NewTail;
@@ -91,20 +84,13 @@ class StoredDeclsList {
     if (!Data.getPointer())
       // All declarations are erased.
       return nullptr;
-    if (isa<NamedDecl *>(NewHead))
+    else if (isa<NamedDecl *>(NewHead))
       // The list only contains a declaration, the header itself.
       return (DeclListNode::Decls *)&Data;
-    assert(NewLast && isa<NamedDecl *>(*NewLast) && "Not the tail?");
-    // NewLast may point at NewHead when we reduced to a single decl; in that
-    // case return &Data so we never return the address of the local NewHead.
-    if (NewLast == &NewHead)
-      return (DeclListNode::Decls *)&Data;
-    return NewLast;
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
+    else {
+      assert(NewLast && isa<NamedDecl *>(*NewLast) && "Not the tail?");
+      return NewLast;
+    }
   }
 
   void erase(NamedDecl *ND) {

@@ -6,13 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Suppress false positive -Wuse-after-free when eraseAndDispose is inlined.
-// Next points to the following node (still in list), not the deleted one.
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wuse-after-free"
-#endif
-
 #include "llvm/ADT/simple_ilist.h"
 #include "llvm/ADT/STLExtras.h"
 #include "gtest/gtest.h"
@@ -659,7 +652,3 @@ TEST(SimpleIListTest, TaggedLists) {
 }
 
 } // end namespace
-
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
