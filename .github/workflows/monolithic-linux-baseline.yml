@@ -1,0 +1,129 @@
+# Baseline workflow for RWX vs GitHub Actions comparison.
+# Runs the same LLVM+Clang build as .rwx/ci.yml and outputs timing.
+# After a run, copy the timings into .rwx/gha-baseline.env or set as RWX init vars.
+#
+# When writing reports, check upstream llvm-project GHA history for reference:
+#   https://github.com/llvm/llvm-project/actions (filter: CI Checks, llvm-project-tests)
+#
+# To use with RWX: rwx run .rwx/ci.yml --init GHA_BUILD_S=<n> --init GHA_CHECK_S=<n> ...
+name: Monolithic Linux (Baseline for RWX comparison)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main, 'feature/**']
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang lld python3 python3-pip \
+            libxml2-dev libedit-dev libncurses5-dev swig build-essential
+          pip install --break-system-packages -q lit psutil
+
+      - name: Install sccache
+        run: |
+          wget -q https://github.com/mozilla/sccache/releases/download/v0.8.2/sccache-v0.8.2-x86_64-unknown-linux-musl.tar.gz
+          tar xzf sccache-v0.8.2-x86_64-unknown-linux-musl.tar.gz
+          sudo mv sccache-v0.8.2-x86_64-unknown-linux-musl/sccache /usr/local/bin/
+          chmod +x /usr/local/bin/sccache
+
+      - name: Configure
+        id: configure
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+        run: |
+          echo "::group::CMake configure"
+          START=$(date +%s)
+          mkdir -p build
+          cmake -S llvm -B build \
+            -D LLVM_ENABLE_PROJECTS="clang" \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D LLVM_ENABLE_ASSERTIONS=ON \
+            -D LLVM_BUILD_EXAMPLES=OFF \
+            -D LLVM_LIT_ARGS="-v --xunit-xml-output $GITHUB_WORKSPACE/build/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
+            -D LLVM_ENABLE_LLD=OFF \
+            -D CMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
+            -D CMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
+            -D CMAKE_CXX_FLAGS="-g1 -fuse-ld=lld -Wno-dangling-pointer -Wno-unused-but-set-parameter -Wno-stringop-overflow -Wno-free-nonheap-object -Wno-return-local-addr" \
+            -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
+            -D LLVM_ENABLE_WERROR=OFF
+          END=$(date +%s)
+          echo "duration=$((END - START))" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+
+      - name: Build
+        id: build
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+        run: |
+          echo "::group::Ninja build"
+          START=$(date +%s)
+          ninja -C build -j$(nproc) -k 0 \
+            llvm-libraries clang \
+            llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer
+          END=$(date +%s)
+          echo "duration=$((END - START))" >> $GITHUB_OUTPUT
+          sccache --show-stats
+          echo "::endgroup::"
+
+      - name: check-llvm
+        id: check_llvm
+        run: |
+          echo "::group::check-llvm"
+          START=$(date +%s)
+          ninja -C build -j$(nproc) check-llvm
+          END=$(date +%s)
+          echo "duration=$((END - START))" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+
+      - name: check-clang
+        id: check_clang
+        run: |
+          echo "::group::check-clang"
+          START=$(date +%s)
+          ninja -C build -j$(nproc) check-clang
+          END=$(date +%s)
+          echo "duration=$((END - START))" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+
+      - name: Timing summary
+        run: |
+          CONFIGURE=${{ steps.configure.outputs.duration }}
+          BUILD=${{ steps.build.outputs.duration }}
+          CHECK_LLVM=${{ steps.check_llvm.outputs.duration }}
+          CHECK_CLANG=${{ steps.check_clang.outputs.duration }}
+          TOTAL=$((CONFIGURE + BUILD + CHECK_LLVM + CHECK_CLANG))
+
+          echo "## GitHub Actions baseline timings (seconds)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Configure | ${CONFIGURE}s |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${BUILD}s |" >> $GITHUB_STEP_SUMMARY
+          echo "| check-llvm | ${CHECK_LLVM}s |" >> $GITHUB_STEP_SUMMARY
+          echo "| check-clang | ${CHECK_CLANG}s |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total** | **${TOTAL}s** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Copy to .rwx/gha-baseline.env or RWX init:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "GHA_CONFIGURE_S=${CONFIGURE}" >> $GITHUB_STEP_SUMMARY
+          echo "GHA_BUILD_S=${BUILD}" >> $GITHUB_STEP_SUMMARY
+          echo "GHA_CHECK_S=$((CHECK_LLVM + CHECK_CLANG))" >> $GITHUB_STEP_SUMMARY
+          echo "GHA_TOTAL_S=${TOTAL}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
