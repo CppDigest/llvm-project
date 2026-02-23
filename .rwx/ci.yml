@@ -350,6 +350,8 @@ tasks:
         echo "Benchmark: Set GHA_CONFIGURE_S, GHA_BUILD_S, GHA_CHECK_S, GHA_TOTAL_S env vars to compare against GitHub Actions."
         echo "Reference: Check upstream llvm-project GHA history — https://github.com/llvm/llvm-project/actions"
       fi
+
+      exit 0
     filter:
       - .rwx/ci.yml
       - tmp/**
