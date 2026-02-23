@@ -59,6 +59,7 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache:
   vault: cppdigest-llvm-workspace
 
 tasks:
@@ -94,6 +95,7 @@ tasks:
   - key: cmake-configure
     use: [install-build-deps, install-sccache]
     timeout: 15m
+    tool-cache: ci-cmake-configure
     agent:
       cpus: 16
       memory: 32GB
@@ -160,6 +162,7 @@ tasks:
   - key: build-llvm-core
     use: [cmake-configure]
     timeout: 60m
+    tool-cache: ci-build-llvm-core
     agent:
       cpus: 16
       memory: 32GB
