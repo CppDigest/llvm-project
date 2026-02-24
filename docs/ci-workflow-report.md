@@ -24,25 +24,22 @@ PR opened/synced on CppDigest/llvm-project
     +---> [BROKEN]  RWX: ci.yml             (trigger misconfigured since Feb 12)
     +---> [NEW]     CppDigest Clang CI      (our fork-specific workflow)
                         |
-                        +--- linux-build (ubuntu-24.04, 120m timeout)
+                        +--- linux-build (ubuntu-24.04, 240m timeout)
                         |     1. Checkout
                         |     2. Install deps (cmake, ninja, clang, lld, lit, psutil)
                         |     3. sccache setup
-                        |     4. CMake Configure (clang+lld, X86, Release, Assertions)
+                        |     4. CMake Configure (clang, X86, Release, Assertions)
                         |     5. Build (ninja -k 0)
                         |     6. Test: check-clang
-                        |     7. Test: check-llvm
-                        |     8. Test: check-lld (continue-on-error)
-                        |     9. sccache stats + test report + artifacts
+                        |     7. sccache stats + test report + artifacts
                         |
                         +--- windows-build (windows-2022, 150m timeout)
                               1. Checkout
-                              2. Install psutil
-                              3. sccache setup
-                              4. CMake Configure (VS 2022 + ClangCL, X86, Release)
-                              5. Build (cmake --parallel)
-                              6. Test: check-clang
-                              7. sccache stats
+                              2. sccache setup
+                              3. CMake Configure (VS 2022 + ClangCL, X86, Release)
+                              4. Build (cmake --parallel)
+                              5. Test: check-clang
+                              6. sccache stats
 ```
 
 ## 2. Where Time Goes
@@ -50,14 +47,12 @@ PR opened/synced on CppDigest/llvm-project
 | Phase | Linux (est.) | Windows (est.) | Notes |
 |-------|-------------|----------------|-------|
 | Checkout | ~30s | ~30s | depth=2, fast |
-| Install deps | ~60s | ~10s | Linux: apt-get + pip; Windows: pip only |
+| Install deps | ~60s | N/A | Linux: apt-get + pip; Windows: none needed |
 | sccache setup | ~10s | ~10s | mozilla-actions/sccache-action |
 | CMake Configure | ~3-5m | ~5-8m | Ninja vs VS generator |
 | Build | ~30-60m | ~60-90m | Cold cache; ~10-20m with warm sccache |
 | check-clang | ~10-20m | ~15-25m | ~20k tests |
-| check-llvm | ~10-15m | N/A | Linux only |
-| check-lld | ~5-10m | N/A | Linux only |
-| **Total** | **~60-110m** | **~80-130m** | **Cold cache** |
+| **Total** | **~45-90m** | **~80-125m** | **Cold cache** |
 
 **Bottleneck:** The build phase dominates (50-70% of total time). With warm sccache, builds drop to ~10-20m, making tests the bottleneck instead.
 
