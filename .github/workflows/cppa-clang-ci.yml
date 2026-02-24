@@ -1,0 +1,145 @@
+name: CppDigest Clang CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - 'clang/**'
+      - 'llvm/**'
+      - 'lld/**'
+      - 'cmake/**'
+      - '.ci/**'
+      - '.github/workflows/cppa-clang-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clang/**'
+      - 'llvm/**'
+      - 'lld/**'
+      - 'cmake/**'
+      - '.ci/**'
+      - '.github/workflows/cppa-clang-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  linux-build:
+    name: Linux (clang)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang lld python3 python3-pip
+          pip install --break-system-packages -q lit psutil
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: CMake Configure
+        run: |
+          cmake -S llvm -B build \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_C_COMPILER=clang \
+            -D CMAKE_CXX_COMPILER=clang++ \
+            -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -D LLVM_ENABLE_PROJECTS="clang;lld" \
+            -D LLVM_ENABLE_ASSERTIONS=ON \
+            -D LLVM_ENABLE_LLD=ON \
+            -D LLVM_BUILD_EXAMPLES=OFF \
+            -D LLVM_TARGETS_TO_BUILD="X86" \
+            -D CMAKE_CXX_FLAGS="-g1" \
+            -D LLVM_LIT_ARGS="-v --xunit-xml-output build/test-results.xml --timeout=600 --time-tests --succinct"
+
+      - name: Build
+        run: ninja -C build -k 0
+
+      - name: Test (check-clang)
+        run: ninja -C build check-clang
+
+      - name: Test (check-llvm)
+        run: ninja -C build check-llvm
+
+      - name: Test (check-lld)
+        run: ninja -C build check-lld
+        continue-on-error: true
+
+      - name: Sccache Stats
+        if: always()
+        run: sccache --show-stats
+
+      - name: Test Report
+        if: always()
+        run: |
+          if [ -f build/test-results.xml ]; then
+            echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+            python3 .ci/generate_test_report_github.py \
+              $? build/test-results.*.xml 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Cache (sccache)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          sccache --show-stats >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-results-linux
+          path: |
+            build/test-results.*.xml
+          retention-days: 7
+
+  windows-build:
+    name: Windows (clang)
+    runs-on: windows-2022
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: CMake Configure
+        shell: bash
+        run: |
+          cmake -S llvm -B build \
+            -G "Visual Studio 17 2022" \
+            -T ClangCL \
+            -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -D LLVM_ENABLE_PROJECTS="clang" \
+            -D LLVM_ENABLE_ASSERTIONS=ON \
+            -D LLVM_BUILD_EXAMPLES=OFF \
+            -D LLVM_TARGETS_TO_BUILD="X86" \
+            -D LLVM_LIT_ARGS="-v --timeout=600 --time-tests --succinct"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release -- /maxcpucount
+
+      - name: Test (check-clang)
+        shell: bash
+        run: cmake --build build --config Release --target check-clang
+
+      - name: Sccache Stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats

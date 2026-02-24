@@ -399,6 +399,10 @@ tasks:
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
+      # Disable early abort so all three suites run even if one fails
+      set +e
+      set +o pipefail
+
       TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
@@ -439,6 +443,10 @@ tasks:
     use: [check-llvm, check-clang, check-lld, check-mlir, check-bolt, check-polly, check-flang, check-clang-tools, check-lldb, check-runtimes]
     timeout: 5m
     run: |
+      # Reporting task — must not fail on non-zero subcommands
+      set +e
+      set +o pipefail
+
       echo ""
       echo "=== RWX CI PERFORMANCE REPORT — LLVM ==="
       echo ""
@@ -460,7 +468,7 @@ tasks:
         done < <(cat "$TIMING_DIR"/*.log)
         echo "Sequential total: ${TOTAL}s"
 
-        FAILURES=$(cat "$TIMING_DIR"/*.log | grep "FAIL" | wc -l)
+        FAILURES=$(cat "$TIMING_DIR"/*.log | grep -c "FAIL" || true)
         if [ "$FAILURES" -gt 0 ]; then
           echo ""
           echo "FAILED:"
@@ -478,5 +486,7 @@ tasks:
         echo "------------------------------------------------------------"
         cat "$TIMING_DIR/sccache-build.txt"
       fi
+
+      exit 0
     filter:
       - .rwx/ci.yml

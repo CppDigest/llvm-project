@@ -1,0 +1,18 @@
+# Flaky tests — known intermittent failures in LLVM/Clang CI
+#
+# Format: one test name per line, with reason and date.
+# Lines starting with # are comments.
+# Used by .ci/run-tests.sh to hint at known flaky tests.
+#
+# To add: append the full lit test name, a reason, and the date.
+# To remove: delete the line when the upstream fix lands.
+
+# LLDB — debugger attach races and timeouts
+# lldb-api :: tools/lldb-dap/disconnect/TestDAP_disconnect.py  # timeout race  2025-05
+# lldb-api :: functionalities/postmortem/minidump-new/TestMiniDumpNew.py  # flaky on ARM  2025-05
+
+# OpenMP — thread-sensitive, hardware-dependent
+# openmp :: tasking/kmp_taskloop.c  # thread scheduling race  2025-04
+
+# Sanitizer — memory layout dependent
+# compiler-rt :: asan/TestCases/Linux/swapcontext_test.cpp  # ASLR-sensitive  2025-03
