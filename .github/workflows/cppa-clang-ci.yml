@@ -133,7 +133,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build build --config Release -- /maxcpucount
+        run: cmake --build build --config Release --parallel
 
       - name: Test (check-clang)
         shell: bash
