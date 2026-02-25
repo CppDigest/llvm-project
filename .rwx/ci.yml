@@ -110,6 +110,7 @@ tasks:
     filter:
       - llvm-project/**
       - tmp/sccache/**
+      - build/**
       - .rwx/ci.yml
 
   # ---------- Stage 3: build core ----------
