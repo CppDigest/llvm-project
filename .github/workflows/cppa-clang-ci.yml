@@ -40,7 +40,12 @@ jobs:
       - name: Compute projects
         id: compute
         run: |
-          git diff --name-only HEAD~1...HEAD | python3 .ci/compute_projects.py > /tmp/projects.env || true
+          # Filter out infrastructure paths (.ci/, .github/, .rwx/, docs/) so they
+          # don't trigger a full monolithic build via compute_projects.py's ".ci" rule.
+          git diff --name-only HEAD~1...HEAD \
+            | grep -v '^\.\(ci\|github\|rwx\)/' \
+            | grep -v '^docs/' \
+            | python3 .ci/compute_projects.py > /tmp/projects.env || true
           set -a
           # shellcheck source=/dev/null
           source /tmp/projects.env 2>/dev/null || true
