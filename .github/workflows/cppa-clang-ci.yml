@@ -153,15 +153,43 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Compute projects
+        id: compute
+        shell: bash
+        run: |
+          git diff --name-only HEAD~1...HEAD \
+            | grep -v '^\.\(ci\|github\|rwx\)/' \
+            | grep -v '^docs/' \
+            | python3 .ci/compute_projects.py > /tmp/projects.env || true
+          set -a
+          source /tmp/projects.env 2>/dev/null || true
+          set +a
+          if [ -n "${projects_to_build:-}" ]; then
+            echo "has_projects=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No projects to build
+        if: steps.compute.outputs.has_projects != 'true'
+        shell: bash
+        run: |
+          echo "No relevant projects changed, skipping build."
+          echo "## No build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Diff had no impact on buildable projects; CI passed." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup sccache
+        if: steps.compute.outputs.has_projects == 'true'
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install dependencies
+        if: steps.compute.outputs.has_projects == 'true'
         shell: bash
         run: pip install -q lit psutil
 
       - name: Build and Test
         id: test
+        if: steps.compute.outputs.has_projects == 'true'
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
           cmake -S llvm -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=cl -D CMAKE_CXX_COMPILER=cl -D CMAKE_C_COMPILER_LAUNCHER=sccache -D CMAKE_CXX_COMPILER_LAUNCHER=sccache -D LLVM_ENABLE_PROJECTS=clang -D LLVM_ENABLE_ASSERTIONS=ON -D LLVM_BUILD_EXAMPLES=OFF -D LLVM_TARGETS_TO_BUILD=X86 -D "CMAKE_EXE_LINKER_FLAGS=/MANIFEST:NO" -D "CMAKE_MODULE_LINKER_FLAGS=/MANIFEST:NO" -D "CMAKE_SHARED_LINKER_FLAGS=/MANIFEST:NO" -D "LLVM_LIT_ARGS=-v --xunit-xml-output %cd%/build/test-results.xml --timeout=600 --time-tests --succinct"
@@ -170,7 +198,7 @@ jobs:
         continue-on-error: true
 
       - name: Sccache Stats
-        if: always()
+        if: always() && steps.compute.outputs.has_projects == 'true'
         shell: bash
         run: |
           sccache --show-stats
@@ -181,7 +209,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Artifacts
-        if: always()
+        if: always() && steps.compute.outputs.has_projects == 'true'
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

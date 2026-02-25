@@ -49,7 +49,7 @@ tasks:
         python3 python3-pip python-is-python3 \
         libxml2-dev libedit-dev libncurses5-dev swig \
         build-essential
-      pip install --break-system-packages -q lit psutil nanobind
+      pip install --break-system-packages -q lit psutil nanobind packaging
     cache: true
     filter:
       - .rwx/ci.yml
