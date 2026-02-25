@@ -1,8 +1,7 @@
 #
 # RWX CI — CppDigest/llvm-project (Linux monolithic build)
 #
-# Migrated from .ci/monolithic-linux.sh + GitHub Actions.
-# DAG: clone → deps/sccache → configure → build → parallel checks (incl. lldb, runtimes) → report
+# DAG: clone → deps/sccache → configure+build → parallel checks → report
 #
 # Prerequisites:
 #   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-main) in Vault
@@ -43,7 +42,7 @@ tasks:
   - key: install-build-deps
     timeout: 5m
     run: |
-      # v2: added nanobind + packaging for MLIR/LLDB
+      # v3: nanobind + packaging for MLIR/LLDB
       sudo apt-get update
       sudo apt-get install -y \
         cmake ninja-build clang lld \
@@ -66,23 +65,24 @@ tasks:
     filter:
       - .rwx/ci.yml
 
-  # ---------- Stage 2: cmake configure ----------
+  # ---------- Stage 2: configure + build (single task) ----------
 
-  - key: cmake-configure
+  - key: build-llvm-core
     use: [clone-repo, install-build-deps, install-sccache]
-    timeout: 30m
+    timeout: 210m
     agent:
       cpus: 2
       memory: 8GB
     env:
       SCCACHE_CACHE_SIZE: 5G
     run: |
-      # v2: X86-only, clang compiler, build dir in filter output
+      TASK_START=$(date +%s)
       WORKSPACE_ROOT=$(pwd)
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
+      mkdir -p "$WORKSPACE_ROOT/tmp"
 
-      mkdir -p "$BUILD_DIR"
+      # ---- Configure ----
       sccache --zero-stats
 
       cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
@@ -108,30 +108,8 @@ tasks:
         -D CMAKE_INSTALL_PREFIX="$BUILD_DIR/install" \
         -D CMAKE_EXE_LINKER_FLAGS="-no-pie" \
         -D LLVM_ENABLE_WERROR=ON
-    cache: true
-    filter:
-      - llvm-project/**
-      - tmp/sccache/**
-      - build/**
-      - .rwx/ci.yml
 
-  # ---------- Stage 3: build core ----------
-
-  - key: build-llvm-core
-    use: [cmake-configure]
-    timeout: 180m
-    agent:
-      cpus: 2
-      memory: 8GB
-    env:
-      SCCACHE_CACHE_SIZE: 5G
-    run: |
-      TASK_START=$(date +%s)
-      WORKSPACE_ROOT=$(pwd)
-      export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
-      BUILD_DIR="$WORKSPACE_ROOT/build"
-      mkdir -p "$WORKSPACE_ROOT/tmp"
-
+      # ---- Build core targets ----
       ninja -C "$BUILD_DIR" -j$(nproc) -k 0 \
         llvm-libraries clang lld \
         llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
@@ -146,12 +124,12 @@ tasks:
       sccache --show-stats > "$WORKSPACE_ROOT/tmp/timing/sccache-build.txt" 2>&1
     cache: true
     filter:
-      - llvm-project/llvm/**
-      - llvm-project/clang/**
-      - llvm-project/lld/**
-      - tmp/sccache/**
+      - build/**
+      - llvm-project/**
+      - tmp/**
+      - .rwx/ci.yml
 
-  # ---------- Stage 4: parallel checks ----------
+  # ---------- Stage 3: parallel checks ----------
   #
   # Each check task writes timing to its own file under tmp/timing/
   # to avoid file-merge conflicts when performance-analysis reads them.
@@ -393,7 +371,7 @@ tasks:
       - llvm-project/llvm/**
       - tmp/sccache/**
 
-  # ---------- Stage 4b: runtime build + tests (compiler-rt, libcxx/libcxxabi/libunwind with C++26 and Clang Modules) ----------
+  # ---------- Stage 3b: runtime build + tests (compiler-rt, libcxx/libcxxabi/libunwind with C++26 and Clang Modules) ----------
 
   - key: check-runtimes
     use: [build-llvm-core]
@@ -441,7 +419,7 @@ tasks:
       - llvm-project/clang/**
       - tmp/sccache/**
 
-  # ---------- Stage 5: report (runs even if checks fail) ----------
+  # ---------- Stage 4: report (runs even if checks fail) ----------
 
   - key: performance-analysis
     after: ${{ (check-llvm.succeeded || check-llvm.failed) && (check-clang.succeeded || check-clang.failed) && (check-lld.succeeded || check-lld.failed) && (check-mlir.succeeded || check-mlir.failed) && (check-bolt.succeeded || check-bolt.failed) && (check-polly.succeeded || check-polly.failed) && (check-flang.succeeded || check-flang.failed) && (check-clang-tools.succeeded || check-clang-tools.failed) && (check-lldb.succeeded || check-lldb.failed) && (check-runtimes.succeeded || check-runtimes.failed) }}
