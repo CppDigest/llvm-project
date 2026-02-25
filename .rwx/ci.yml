@@ -127,8 +127,9 @@ tasks:
       WORKSPACE_ROOT=$(pwd)
       export SCCACHE_DIR="$WORKSPACE_ROOT/tmp/sccache"
       BUILD_DIR="$WORKSPACE_ROOT/build"
+      mkdir -p "$WORKSPACE_ROOT/tmp"
 
-      ninja -C "$BUILD_DIR" -j2 -k 0 \
+      ninja -C "$BUILD_DIR" -j$(nproc) -k 0 \
         llvm-libraries clang lld \
         llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-symbolizer \
         2>&1 | tee "$WORKSPACE_ROOT/tmp/ninja-core.log"
