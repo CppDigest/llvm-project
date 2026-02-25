@@ -5,7 +5,7 @@
 # DAG: clone → deps/sccache → configure → build → parallel checks (incl. lldb, runtimes) → report
 #
 # Prerequisites:
-#   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-test) in Vault
+#   1. RWX org with GitHub App "CppDigest" (slug: cppdigest-main) in Vault
 #   2. App installed on CppDigest/llvm-project with Contents + PR permissions
 #
 # Local test: rwx run .rwx/ci.yml --init commit-sha=HEAD --init clone-url=<repo-clone-url> --init branch=<branch>

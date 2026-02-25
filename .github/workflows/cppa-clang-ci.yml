@@ -59,13 +59,16 @@ jobs:
             -D LLVM_BUILD_EXAMPLES=OFF \
             -D LLVM_TARGETS_TO_BUILD="X86" \
             -D CMAKE_CXX_FLAGS="-g1" \
-            -D LLVM_LIT_ARGS="-v --xunit-xml-output build/test-results.xml --timeout=600 --time-tests --succinct"
+            -D LLVM_LIT_ARGS="-v --xunit-xml-output $(pwd)/build/test-results.xml --timeout=600 --time-tests --succinct"
 
       - name: Build
         run: ninja -C build -k 0
 
       - name: Test (check-clang)
-        run: ninja -C build check-clang
+        id: test
+        run: |
+          .ci/run-tests.sh check-clang
+        continue-on-error: true
 
       - name: Sccache Stats
         if: always()
@@ -74,16 +77,18 @@ jobs:
       - name: Test Report
         if: always()
         run: |
-          if [ -f build/test-results.xml ]; then
-            echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          TEST_EXIT=${{ steps.test.outcome == 'success' && '0' || '1' }}
+          if ls build/test-results*.xml 1>/dev/null 2>&1; then
+            echo "## Test Results" >> "$GITHUB_STEP_SUMMARY"
             python3 .ci/generate_test_report_github.py \
-              $? build/test-results.xml 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+              "$TEST_EXIT" build/test-results*.xml 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Cache (sccache)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          sccache --show-stats >> $GITHUB_STEP_SUMMARY 2>&1 || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Cache (sccache)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$TEST_EXIT"
 
       - name: Upload Artifacts
         if: always()
@@ -92,13 +97,16 @@ jobs:
         with:
           name: test-results-linux
           path: |
-            build/test-results.xml
+            build/test-results*.xml
           retention-days: 7
 
   windows-build:
     name: Windows (clang)
     runs-on: windows-2022
-    timeout-minutes: 150
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: cmd
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,29 +116,39 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.7
 
-      - name: CMake Configure
+      - name: Install dependencies
         shell: bash
+        run: pip install -q lit psutil
+
+      - name: Build and Test
+        id: test
         run: |
-          cmake -S llvm -B build \
-            -G "Visual Studio 17 2022" \
-            -T ClangCL \
-            -D CMAKE_C_COMPILER_LAUNCHER=sccache \
-            -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
-            -D LLVM_ENABLE_PROJECTS="clang" \
-            -D LLVM_ENABLE_ASSERTIONS=ON \
-            -D LLVM_BUILD_EXAMPLES=OFF \
-            -D LLVM_TARGETS_TO_BUILD="X86" \
-            -D LLVM_LIT_ARGS="-v --time-tests --succinct"
-
-      - name: Build
-        shell: bash
-        run: cmake --build build --config Release --parallel
-
-      - name: Test (check-clang)
-        shell: bash
-        run: cmake --build build --config Release --target check-clang
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          bash -c "cmake -S llvm -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=cl -D CMAKE_CXX_COMPILER=cl -D CMAKE_C_COMPILER_LAUNCHER=sccache -D CMAKE_CXX_COMPILER_LAUNCHER=sccache -D LLVM_ENABLE_PROJECTS=clang -D LLVM_ENABLE_ASSERTIONS=ON -D LLVM_BUILD_EXAMPLES=OFF -D LLVM_TARGETS_TO_BUILD=X86 -D CMAKE_EXE_LINKER_FLAGS='/MANIFEST:NO' -D CMAKE_MODULE_LINKER_FLAGS='/MANIFEST:NO' -D CMAKE_SHARED_LINKER_FLAGS='/MANIFEST:NO' -D 'LLVM_LIT_ARGS=-v --xunit-xml-output $(pwd)/build/test-results.xml --timeout=600 --time-tests --succinct' && ninja -C build -k 0 && ninja -C build check-clang"
+        continue-on-error: true
 
       - name: Sccache Stats
         if: always()
         shell: bash
-        run: sccache --show-stats
+        run: |
+          sccache --show-stats
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Cache (sccache)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-results-windows
+          path: |
+            build/test-results*.xml
+          retention-days: 7
+
+      - name: Propagate test failure
+        if: steps.test.outcome == 'failure'
+        shell: bash
+        run: exit 1
