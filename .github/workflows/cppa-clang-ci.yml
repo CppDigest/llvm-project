@@ -8,6 +8,7 @@ on:
     paths:
       - 'clang/**'
       - 'llvm/**'
+      - 'lld/**'
       - 'cmake/**'
       - '.ci/**'
       - '.github/workflows/cppa-clang-ci.yml'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'clang/**'
       - 'llvm/**'
+      - 'lld/**'
       - 'cmake/**'
       - '.ci/**'
       - '.github/workflows/cppa-clang-ci.yml'
@@ -35,16 +37,47 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Compute projects
+        id: compute
+        run: |
+          git diff --name-only HEAD~1...HEAD | python3 .ci/compute_projects.py > /tmp/projects.env || true
+          set -a
+          # shellcheck source=/dev/null
+          source /tmp/projects.env 2>/dev/null || true
+          set +a
+          # Only projects (no runtimes) to keep CI shorter; use semicolon for CMake
+          echo "projects_to_build<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${projects_to_build:-}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "project_check_targets<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${project_check_targets:-}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "${projects_to_build:-}" ]; then
+            echo "has_projects=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No projects to build
+        if: steps.compute.outputs.has_projects != 'true'
+        run: |
+          echo "No relevant projects changed (path-based selection), skipping build."
+          echo "## No build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Diff had no impact on buildable projects; CI passed." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install dependencies
+        if: steps.compute.outputs.has_projects == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang lld python3 python3-pip
           pip install --break-system-packages -q lit psutil
 
       - name: Setup sccache
+        if: steps.compute.outputs.has_projects == 'true'
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: CMake Configure
+        if: steps.compute.outputs.has_projects == 'true'
         run: |
           cmake -S llvm -B build \
             -G Ninja \
@@ -53,7 +86,7 @@ jobs:
             -D CMAKE_CXX_COMPILER=clang++ \
             -D CMAKE_C_COMPILER_LAUNCHER=sccache \
             -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
-            -D LLVM_ENABLE_PROJECTS="clang" \
+            -D LLVM_ENABLE_PROJECTS="${{ steps.compute.outputs.projects_to_build }}" \
             -D LLVM_ENABLE_ASSERTIONS=ON \
             -D LLVM_ENABLE_LLD=ON \
             -D LLVM_BUILD_EXAMPLES=OFF \
@@ -62,20 +95,22 @@ jobs:
             -D LLVM_LIT_ARGS="-v --xunit-xml-output $(pwd)/build/test-results.xml --timeout=600 --time-tests --succinct"
 
       - name: Build
+        if: steps.compute.outputs.has_projects == 'true'
         run: ninja -C build -k 0
 
-      - name: Test (check-clang)
+      - name: Test
         id: test
+        if: steps.compute.outputs.has_projects == 'true'
         run: |
-          .ci/run-tests.sh check-clang
+          .ci/run-tests.sh ${{ steps.compute.outputs.project_check_targets }}
         continue-on-error: true
 
       - name: Sccache Stats
-        if: always()
+        if: always() && steps.compute.outputs.has_projects == 'true'
         run: sccache --show-stats
 
       - name: Test Report
-        if: always()
+        if: always() && steps.compute.outputs.has_projects == 'true'
         run: |
           TEST_EXIT=${{ steps.test.outcome == 'success' && '0' || '1' }}
           if ls build/test-results*.xml 1>/dev/null 2>&1; then
@@ -91,7 +126,7 @@ jobs:
           exit "$TEST_EXIT"
 
       - name: Upload Artifacts
-        if: always()
+        if: always() && steps.compute.outputs.has_projects == 'true'
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

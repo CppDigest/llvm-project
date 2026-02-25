@@ -105,9 +105,7 @@ tasks:
         -D LLVM_ENABLE_WERROR=ON
     cache: true
     filter:
-      - llvm-project/llvm/CMakeLists.txt
-      - llvm-project/clang/CMakeLists.txt
-      - llvm-project/cmake/**
+      - llvm-project/**
       - tmp/sccache/**
       - .rwx/ci.yml
 
