@@ -1,6 +1,7 @@
 #
 # RWX CI — CppDigest/llvm-project (Linux monolithic build)
 #
+# Scope: clang + lld only (reduced from 7 projects to fit 2-core / 120m limit)
 # Single build-and-test task to avoid cross-task file transfer issues.
 # DAG: clone → deps/sccache → build-and-test → report
 #
@@ -37,14 +38,14 @@ tasks:
   - key: install-build-deps
     timeout: 5m
     run: |
-      # v4: single build-and-test task
+      # v5: clang+lld only (reduced scope for 2-core agent)
       sudo apt-get update
       sudo apt-get install -y \
         cmake ninja-build clang lld \
         python3 python3-pip python-is-python3 \
-        libxml2-dev libedit-dev libncurses5-dev swig \
+        libxml2-dev libedit-dev libncurses5-dev \
         build-essential
-      pip install --break-system-packages -q lit psutil nanobind packaging
+      pip install --break-system-packages -q lit psutil
     cache: true
     filter:
       - .rwx/ci.yml
@@ -85,13 +86,11 @@ tasks:
       sccache --zero-stats
 
       cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
-        -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;mlir;polly;bolt;flang" \
-        -D LLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
+        -D LLVM_ENABLE_PROJECTS="clang;lld" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
         -D LLVM_ENABLE_ASSERTIONS=ON \
         -D LLVM_BUILD_EXAMPLES=OFF \
-        -D COMPILER_RT_BUILD_LIBFUZZER=OFF \
         -D LLVM_LIT_ARGS="-v --xunit-xml-output $BUILD_DIR/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct" \
         -D LLVM_TARGETS_TO_BUILD="X86" \
         -D LLVM_ENABLE_LLD=ON \
@@ -101,8 +100,6 @@ tasks:
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
         -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
-        -D LIBCXX_CXX_ABI=libcxxabi \
-        -D MLIR_ENABLE_BINDINGS_PYTHON=ON \
         -D CMAKE_INSTALL_PREFIX="$BUILD_DIR/install" \
         -D CMAKE_EXE_LINKER_FLAGS="-no-pie" \
         -D LLVM_ENABLE_WERROR=OFF
@@ -134,7 +131,7 @@ tasks:
       # ---- Tests (run all, collect results) ----
       OVERALL_RET=0
 
-      for target in check-llvm check-clang check-lld check-mlir check-polly check-bolt check-flang; do
+      for target in check-llvm check-clang check-lld; do
         STAGE_START=$(date +%s)
         echo ""
         echo "=== Running $target ==="
