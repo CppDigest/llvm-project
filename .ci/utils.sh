@@ -37,6 +37,11 @@ function at-exit {
     python "${MONOREPO_ROOT}"/.ci/generate_test_report_github.py \
       $retcode "${BUILD_DIR}"/test-results.*.xml "${MONOREPO_ROOT}"/ninja*.log \
       >> $GITHUB_STEP_SUMMARY
+    echo "" >> $GITHUB_STEP_SUMMARY
+    echo "## Cache (sccache)" >> $GITHUB_STEP_SUMMARY
+    echo '```' >> $GITHUB_STEP_SUMMARY
+    sccache --show-stats >> $GITHUB_STEP_SUMMARY 2>&1 || true
+    echo '```' >> $GITHUB_STEP_SUMMARY
     if [[ -n "$GITHUB_PR_NUMBER" ]]; then
       (python "${MONOREPO_ROOT}"/.ci/premerge_advisor_explain.py \
         $(git rev-parse HEAD~1) $retcode "${GITHUB_TOKEN}" \

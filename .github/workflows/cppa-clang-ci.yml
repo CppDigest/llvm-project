@@ -1,0 +1,224 @@
+name: CppDigest Clang CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - 'clang/**'
+      - 'llvm/**'
+      - 'lld/**'
+      - 'cmake/**'
+      - '.ci/**'
+      - '.github/workflows/cppa-clang-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clang/**'
+      - 'llvm/**'
+      - 'lld/**'
+      - 'cmake/**'
+      - '.ci/**'
+      - '.github/workflows/cppa-clang-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  linux-build:
+    name: Linux (clang)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Compute projects
+        id: compute
+        run: |
+          # Filter out infrastructure paths (.ci/, .github/, .rwx/, docs/) so they
+          # don't trigger a full monolithic build via compute_projects.py's ".ci" rule.
+          git diff --name-only HEAD~1...HEAD \
+            | grep -v '^\.\(ci\|github\|rwx\)/' \
+            | grep -v '^docs/' \
+            | python3 .ci/compute_projects.py > /tmp/projects.env || true
+          set -a
+          # shellcheck source=/dev/null
+          source /tmp/projects.env 2>/dev/null || true
+          set +a
+          # Only projects (no runtimes) to keep CI shorter; use semicolon for CMake
+          echo "projects_to_build<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${projects_to_build:-}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "project_check_targets<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${project_check_targets:-}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "${projects_to_build:-}" ]; then
+            echo "has_projects=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No projects to build
+        if: steps.compute.outputs.has_projects != 'true'
+        run: |
+          echo "No relevant projects changed (path-based selection), skipping build."
+          echo "## No build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Diff had no impact on buildable projects; CI passed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        if: steps.compute.outputs.has_projects == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang lld python3 python3-pip
+          pip install --break-system-packages -q lit psutil
+
+      - name: Setup sccache
+        if: steps.compute.outputs.has_projects == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: CMake Configure
+        if: steps.compute.outputs.has_projects == 'true'
+        run: |
+          cmake -S llvm -B build \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_C_COMPILER=clang \
+            -D CMAKE_CXX_COMPILER=clang++ \
+            -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -D LLVM_ENABLE_PROJECTS="${{ steps.compute.outputs.projects_to_build }}" \
+            -D LLVM_ENABLE_ASSERTIONS=ON \
+            -D LLVM_ENABLE_LLD=ON \
+            -D LLVM_BUILD_EXAMPLES=OFF \
+            -D LLVM_TARGETS_TO_BUILD="X86" \
+            -D CMAKE_CXX_FLAGS="-g1" \
+            -D LLVM_LIT_ARGS="-v --xunit-xml-output $(pwd)/build/test-results.xml --timeout=600 --time-tests --succinct"
+
+      - name: Build
+        if: steps.compute.outputs.has_projects == 'true'
+        run: ninja -C build -k 0
+
+      - name: Test
+        id: test
+        if: steps.compute.outputs.has_projects == 'true'
+        run: |
+          .ci/run-tests.sh ${{ steps.compute.outputs.project_check_targets }}
+        continue-on-error: true
+
+      - name: Sccache Stats
+        if: always() && steps.compute.outputs.has_projects == 'true'
+        run: sccache --show-stats
+
+      - name: Test Report
+        if: always() && steps.compute.outputs.has_projects == 'true'
+        run: |
+          TEST_EXIT=${{ steps.test.outcome == 'success' && '0' || '1' }}
+          if ls build/test-results*.xml 1>/dev/null 2>&1; then
+            echo "## Test Results" >> "$GITHUB_STEP_SUMMARY"
+            python3 .ci/generate_test_report_github.py \
+              "$TEST_EXIT" build/test-results*.xml 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Cache (sccache)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$TEST_EXIT"
+
+      - name: Upload Artifacts
+        if: always() && steps.compute.outputs.has_projects == 'true'
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-results-linux
+          path: |
+            build/test-results*.xml
+          retention-days: 7
+
+  windows-build:
+    name: Windows (clang)
+    runs-on: windows-2022
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Compute projects
+        id: compute
+        shell: bash
+        run: |
+          git diff --name-only HEAD~1...HEAD \
+            | grep -v '^\.\(ci\|github\|rwx\)/' \
+            | grep -v '^docs/' \
+            | python3 .ci/compute_projects.py > /tmp/projects.env || true
+          set -a
+          source /tmp/projects.env 2>/dev/null || true
+          set +a
+          if [ -n "${projects_to_build:-}" ]; then
+            echo "has_projects=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No projects to build
+        if: steps.compute.outputs.has_projects != 'true'
+        shell: bash
+        run: |
+          echo "No relevant projects changed, skipping build."
+          echo "## No build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Diff had no impact on buildable projects; CI passed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup sccache
+        if: steps.compute.outputs.has_projects == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install dependencies
+        if: steps.compute.outputs.has_projects == 'true'
+        shell: bash
+        run: pip install -q lit psutil
+
+      - name: Build and Test
+        id: test
+        if: steps.compute.outputs.has_projects == 'true'
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake -S llvm -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=cl -D CMAKE_CXX_COMPILER=cl -D CMAKE_C_COMPILER_LAUNCHER=sccache -D CMAKE_CXX_COMPILER_LAUNCHER=sccache -D LLVM_ENABLE_PROJECTS=clang -D LLVM_ENABLE_ASSERTIONS=ON -D LLVM_BUILD_EXAMPLES=OFF -D LLVM_TARGETS_TO_BUILD=X86 -D "CMAKE_EXE_LINKER_FLAGS=/MANIFEST:NO" -D "CMAKE_MODULE_LINKER_FLAGS=/MANIFEST:NO" -D "CMAKE_SHARED_LINKER_FLAGS=/MANIFEST:NO" -D "LLVM_LIT_ARGS=-v --xunit-xml-output %cd%/build/test-results.xml --timeout=600 --time-tests --succinct"
+          ninja -C build -k 0
+          ninja -C build check-clang
+        continue-on-error: true
+
+      - name: Sccache Stats
+        if: always() && steps.compute.outputs.has_projects == 'true'
+        shell: bash
+        run: |
+          sccache --show-stats
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Cache (sccache)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Artifacts
+        if: always() && steps.compute.outputs.has_projects == 'true'
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-results-windows
+          path: |
+            build/test-results*.xml
+          retention-days: 7
+
+      - name: Propagate test failure
+        if: steps.test.outcome == 'failure'
+        shell: bash
+        run: exit 1
