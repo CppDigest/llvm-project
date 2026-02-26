@@ -50,7 +50,7 @@ This is the critical path for AI agent productivity. Every iteration (code chang
 
 A change to `clang/lib/Sema/` only needs `check-clang`, not full `check-all`. A change to `llvm/lib/Target/X86/` needs `check-llvm` + dependent projects. This alone cuts 50-70% of build time for targeted changes.
 
-**Effort:** 2-4h | **Impact:** 60m -> 15-20m | **Status:** Not started
+**Effort:** 2-4h | **Impact:** 60m -> 15-20m | **Status:** Done (implemented in `cppa-clang-ci.yml`, infra-only PRs skip build in <2 min)
 
 ### 2.2 Warm sccache [CRITICAL]
 
@@ -61,7 +61,7 @@ A change to `clang/lib/Sema/` only needs `check-clang`, not full `check-all`. A 
 - Set `SCCACHE_GHA_CACHE_TO` / `SCCACHE_GHA_CACHE_FROM` for fine-grained control
 - Target >60% hit rate (upstream achieves >80% on GCS)
 
-**Effort:** 1-2h | **Impact:** 3-5x speedup once warm | **Status:** Monitoring needed
+**Effort:** 1-2h | **Impact:** 3-5x speedup once warm | **Status:** Wired (sccache stats in step summary; hit rate visible per run; cross-branch restore-keys not yet configured)
 
 ### 2.3 Upgrade Runners
 
@@ -288,8 +288,8 @@ We define the following baseline metrics and targets for the **critical workflow
 
 | # | Proposal | Bottleneck | Impact | Effort | Status |
 |---|----------|-----------|--------|--------|--------|
-| 2.1 | Path-based project selection | Feedback loop | Very High | 2-4h | Do Now |
-| 2.2 | Warm sccache | Feedback loop | Very High | 1-2h | Do Now |
+| 2.1 | Path-based project selection | Feedback loop | Very High | 2-4h | **Done** |
+| 2.2 | Warm sccache | Feedback loop | Very High | 1-2h | Wired (needs restore-keys) |
 | 2.3 | Upgrade runners | Feedback loop | High | 1h | Do Now |
 | 3.1 | Code formatting pre-check | Wasted iterations | Medium | 2-4h | Do Now |
 | 3.2 | Local pre-flight script | Wasted iterations | High | 2-4h | Do Now |
@@ -316,14 +316,14 @@ This roadmap explicitly connects the three phases required by Issue #1.
 
 **Goal:** Shorter feedback loop and measurable baseline without changing upstream policy.
 
-| Step | Deliverable | Outcome |
-|------|-------------|--------|
-| 1.1 | Path-based project selection in fork CI | Build/test only what changed; skip when no projects. |
-| 1.2 | sccache stats in step summary | Cache hit rate visible every run (baseline for measurability). |
-| 1.3 | Baseline metrics defined | First meaningful signal, total wall time, cache hit rate, flake rate (see table above). |
-| 1.4 | Improvement proposals + workflow report | Clarity and actionability (≥3 implementable items). |
+| Step | Deliverable | Outcome | Status |
+|------|-------------|--------|--------|
+| 1.1 | Path-based project selection in fork CI | Build/test only what changed; skip when no projects. | **Done** |
+| 1.2 | sccache stats in step summary | Cache hit rate visible every run (baseline for measurability). | **Done** |
+| 1.3 | Baseline metrics defined | First meaningful signal, total wall time, cache hit rate, flake rate (see table above). | **Done** |
+| 1.4 | Improvement proposals + workflow report | Clarity and actionability (≥3 implementable items). | **Done** |
 
-**Exit:** At least 3 improvement items are implementable; baseline metrics and targets are defined.
+**Exit:** At least 3 improvement items are implementable; baseline metrics and targets are defined. **Phase 1 complete.**
 
 ### Phase 2: Medium-term runner strategy (1–2 months)
 
@@ -350,3 +350,28 @@ This roadmap explicitly connects the three phases required by Issue #1.
 **Exit:** Single workflow from "open PR" to "see failure → get suggestion → approve → merge" with minimal context switching; agents in safe "assistant" then "autopilot" steps.
 
 **Dependencies:** Phase 1 is independent. Phase 2 can overlap with Phase 1. Phase 3 depends on Phase 1 (visibility + triage) and benefits from Phase 2 (runner capacity).
+
+---
+
+## Prototype / Proof of Value
+
+The issue requires at least one measurable CI speedup or scripted workflow analyzer.
+
+### Implemented: Path-Based Project Selection
+
+**Before (GHA run #15):** 3h 25m 48s — full clang build on infrastructure-only PR.
+**After (GHA run #18):** 1m 52s — `compute_projects.py` detects no buildable files, skips build entirely.
+
+**Speedup: 110x** for infrastructure-only changes (docs, CI scripts, workflow files).
+
+### Implemented: sccache Stats in Step Summary
+
+Every GHA run now prints sccache hit/miss stats to the Job Step Summary. This gives per-run cache hit rate visibility without needing external tooling. Current baseline: ~0% (cold cache on new fork). Target: >60% after 2-3 builds on `main`.
+
+### Implemented: RWX Monolithic Build Pipeline
+
+Fork-specific RWX CI (`.rwx/ci.yml`) provides a second CI system with:
+- Monolithic LLVM build (all subprojects, X86 target)
+- Parallel check tasks (check-llvm, check-clang, check-lld, check-mlir, ...)
+- Performance analysis report (task timing, sccache stats)
+- Per-second billing (~$0.008/min vs GHA's per-minute billing)

@@ -12,7 +12,57 @@ CppDigest's fork-specific CI (`cppa-clang-ci.yml`) and RWX pipeline fill this ga
 
 ---
 
-## 1. Complete Workflow Inventory (49 files)
+## 1. Workflow Diagram: PR → Checks → Merge
+
+```
+Developer pushes PR to CppDigest/llvm-project
+    │
+    ├─► cppa-clang-ci.yml (fork CI)
+    │       ├─► Linux (clang): checkout → compute_projects → [skip if no projects]
+    │       │       → install deps → sccache → cmake configure → ninja build → test → report
+    │       │       Artifacts: test-results-linux/ (JUnit XML)
+    │       │
+    │       └─► Windows (clang): checkout → compute_projects → [skip if no projects]
+    │               → VsDevCmd → cmake configure → ninja build → check-clang → report
+    │               Artifacts: test-results-windows/ (JUnit XML)
+    │
+    ├─► RWX Mint (.rwx/ci.yml)
+    │       clone → install-deps/sccache → configure+build
+    │           → check-llvm, check-clang, check-lld, check-mlir, ... (parallel)
+    │           → performance-analysis (report)
+    │
+    ├─► pr-code-format.yml (blocked — requires repository_owner == 'llvm')
+    ├─► pr-code-lint.yml   (blocked — requires repository_owner == 'llvm')
+    ├─► new-prs.yml        (auto-labeling — works on forks)
+    └─► check-ci.yml       (CI script validation — works on forks)
+
+All checks pass → Ready for review → Merge
+```
+
+### What Gates Merges (Upstream)
+
+On `llvm/llvm-project`, branch protection requires:
+- **CI Checks** (`premerge.yaml`) — Linux, Windows, macOS builds + tests
+- **Code Formatting** (`pr-code-format.yml`) — clang-format validation
+- Maintainer approval via CODEOWNERS auto-assignment
+
+On **CppDigest fork**, there are no required status checks configured. The `cppa-clang-ci.yml` and RWX pipelines run but don't block merge.
+
+### What Artifacts/Logs Are Available
+
+| Source | Artifact | Location | Retention |
+|--------|----------|----------|-----------|
+| GHA Linux | `test-results-linux/` (JUnit XML) | Actions → Artifacts tab | 7 days |
+| GHA Windows | `test-results-windows/` (JUnit XML) | Actions → Artifacts tab | 7 days |
+| GHA both | sccache stats | Job Step Summary (inline) | Permanent |
+| GHA both | Build/test logs | Actions → Job → step expand | 90 days |
+| RWX | Task logs | RWX dashboard → task → logs | Per plan |
+| RWX | Performance report | `performance-analysis` task stdout | Per plan |
+| Upstream | Buildbot results | https://lab.llvm.org/buildbot/ | Permanent |
+
+---
+
+## 2. Complete Workflow Inventory (49 files)
 
 ### Category A: Core Build & Test (10 workflows)
 
@@ -93,7 +143,7 @@ CppDigest's fork-specific CI (`cppa-clang-ci.yml`) and RWX pipeline fill this ga
 
 ---
 
-## 2. Monthly CI Statistics (Premerge)
+## 3. Monthly CI Statistics (Premerge)
 
 Data fetched from GitHub Actions for the past 12 months:
 
@@ -131,7 +181,7 @@ Data fetched from GitHub Actions for the past 12 months:
 
 ---
 
-## 3. Success / Failure Analysis
+## 4. Success / Failure Analysis
 
 ### Premerge CI Success Rates (sampled months)
 
@@ -159,7 +209,7 @@ Data fetched from GitHub Actions for the past 12 months:
 
 ---
 
-## 4. Runner Infrastructure
+## 5. Runner Infrastructure
 
 ### Self-Hosted Runners
 
@@ -196,9 +246,9 @@ Data fetched from GitHub Actions for the past 12 months:
 
 ---
 
-## 5. Bottleneck Analysis
+## 6. Bottleneck Analysis
 
-### 5.1 Build Time Bottlenecks
+### 6.1 Build Time Bottlenecks
 
 | Bottleneck | Impact | Details |
 |-----------|--------|---------|
@@ -208,7 +258,36 @@ Data fetched from GitHub Actions for the past 12 months:
 | **Cold sccache** | 3-5x slower | First build on new runner has 0% cache hit rate |
 | **Debug info** | 2-3x size | `-g` flag dramatically increases object file sizes and link times |
 
-### 5.2 Developer Workflow Bottlenecks
+### 6.2 Time Breakdown by CI Stage (Fork CI, 2-core runner)
+
+| Stage | Cold Cache | Warm Cache | % of Total (cold) |
+|-------|-----------|-----------|-------------------|
+| Checkout (`git clone --depth 2`) | ~30s | ~30s | <1% |
+| Compute projects (`compute_projects.py`) | ~5s | ~5s | <1% |
+| Install deps (`pip install lit psutil`) | ~30s | ~30s | <1% |
+| sccache setup | ~10s | ~10s | <1% |
+| **CMake configure** | ~3-5 min | ~1-2 min | 5-8% |
+| **Compile (ninja)** | **40-60 min** | **10-20 min** | **60-70%** |
+| **Link** | **10-20 min** | **5-10 min** | **15-25%** |
+| **Test (check-clang)** | ~10-15 min | ~10-15 min | 15% |
+| sccache stats + upload | ~15s | ~15s | <1% |
+| **Total** | **~60-90 min** | **~25-45 min** | |
+
+**Compile + link = 80-90% of CI time.** Everything else is noise.
+
+### 6.3 Known Flaky Tests (Upstream)
+
+| Area | Frequency | Root Cause |
+|------|-----------|-----------|
+| LLDB process attach/detach | Moderate | Timing races in debugger-inferior interaction |
+| Sanitizer tests (ASAN/TSAN) | Moderate | Sensitive to system load and kernel versions |
+| libc++ concurrency tests | Low | Thread scheduling non-determinism |
+| Windows path handling | Low-Moderate | Drive letter / UNC path edge cases |
+| MLIR GPU dialect tests | Low | GPU driver availability on CI runners |
+
+Upstream has no automated flaky test quarantine. The `.ci/run-tests.sh` script in our fork retries once on failure to mitigate flakes.
+
+### 6.4 Developer Workflow Bottlenecks
 
 | Bottleneck | Impact | Details |
 |-----------|--------|---------|
@@ -218,24 +297,58 @@ Data fetched from GitHub Actions for the past 12 months:
 | **Queue times** | 26 queued at peak | During US/EU overlap, runners saturated |
 | **Monorepo scale** | Slow git operations | ~3.5 GB checkout, ~500k files |
 
-### 5.3 Fork-Specific Bottlenecks
+### 6.5 Fork-Specific Bottlenecks
 
-| Bottleneck | Impact | Details |
-|-----------|--------|---------|
-| **No upstream CI** | All workflows skipped | `repository_owner == 'llvm'` guard blocks everything |
-| **No path-based selection** | Full rebuild every time | Fork CI doesn't use `compute_projects.py` |
-| **Cold cache on GHA** | ~60m Linux, ~90m Windows | sccache needs warm cache for 3-5x speedup |
-| **2-core GHA runners** | Slow builds | Upstream uses 16-core Depot runners |
-| **RWX trigger issues** | Pipeline broken | VCS integration required debugging |
+| Bottleneck | Impact | Details | Status |
+|-----------|--------|---------|--------|
+| **No upstream CI** | All workflows skipped | `repository_owner == 'llvm'` guard blocks everything | Mitigated (fork CI + RWX) |
+| **No path-based selection** | Full rebuild every time | Fork CI doesn't use `compute_projects.py` | **Fixed** (infra-only PRs skip in <2 min) |
+| **Cold cache on GHA** | ~60m Linux, ~90m Windows | sccache needs warm cache for 3-5x speedup | Monitoring (stats in step summary) |
+| **2-core GHA runners** | Slow builds | Upstream uses 16-core Depot runners | Open (upgrade planned) |
+| **RWX trigger issues** | Pipeline broken | VCS integration required debugging | **Fixed** (triggers working) |
 
 ---
 
-## 6. Upstream vs Fork CI Comparison
+## 7. Automation & Bots Inventory
+
+### What Exists (Upstream)
+
+| Automation | Mechanism | Status on Fork |
+|-----------|-----------|----------------|
+| **Auto-labeling PRs** | `new-prs.yml` — labels by file path | Works |
+| **Auto-labeling issues** | `issue-labeler.yml` — labels by title/body | Works |
+| **PR subscriber** | `pr-subscriber.yml` — notifies code owners | Works |
+| **Issue subscriber** | `issue-subscriber.yml` — notifies watchers | Works |
+| **Reviewer assignment** | `.github/CODEOWNERS` + subproject `Maintainers.md` files | Works (auto-assigns reviewers) |
+| **Merged PR greeter** | `merged-prs.yml` — posts buildbot info for first-timers | Works |
+| **Code formatting** | `pr-code-format.yml` — clang-format check | Blocked (`repository_owner == 'llvm'`) |
+| **Code linting** | `pr-code-lint.yml` — clang-tidy check | Blocked (`repository_owner == 'llvm'`) |
+| **Backport / cherry-pick** | `issue-release-workflow.yml` — `/cherry-pick <sha>` in issue comment | Works (needs release secrets) |
+| **Email validation** | `email-check.yaml` — validates commit author email | Works |
+| **Stale issue cleanup** | Scheduled workflow closes stale issues/PRs | Works |
+| **Branch pruning** | `prune-branches.yml` — removes stale branches | Works |
+| **LLVM Buildbots** | https://lab.llvm.org/buildbot/ — post-commit testing on 100+ builders | Upstream only |
+| **Premerge advisor** | `.ci/premerge_advisor_explain.py` — failure analysis | Available but not wired |
+| **Scorecard** | `scorecard.yml` — OpenSSF security scoring | Works |
+
+### Gaps on Fork
+
+| Gap | Impact | Fix |
+|-----|--------|-----|
+| No code formatting check | Formatting issues found in review, wasting iteration | Add fork-specific clang-format step |
+| No buildbot coverage | Post-commit failures on platforms we don't test | Monitor upstream buildbots after merge |
+| No failure triage automation | CI failures require manual debugging | Wire `premerge_advisor_explain.py` or AI agent |
+| No reviewer suggestion | Finding upstream reviewer requires tribal knowledge | Parse `Maintainers.md` + git blame |
+| No fork sync automation | Manual rebase against upstream (~1000 commits/week) | Scheduled rebase workflow |
+
+---
+
+## 8. Upstream vs Fork CI Comparison
 
 | Aspect | Upstream (llvm/llvm-project) | Fork (CppDigest/llvm-project) |
 |--------|-----|------|
 | **Premerge CI** | `premerge.yaml` (Linux, Windows, macOS) | `cppa-clang-ci.yml` (Linux, Windows) |
-| **Project selection** | Path-based (`compute_projects.py`) | Full build (clang only) |
+| **Project selection** | Path-based (`compute_projects.py`) | Path-based (same `compute_projects.py`, infra paths filtered) |
 | **Linux runners** | Self-hosted (llvm-premerge-linux-runners) | GHA `ubuntu-24.04` (2-core) |
 | **Build cache** | sccache on GCS (shared) | sccache on GHA cache (per-repo) |
 | **Typical build time** | 7-15 min (targeted) | 45-90 min (cold cache) |
@@ -245,7 +358,7 @@ Data fetched from GitHub Actions for the past 12 months:
 
 ---
 
-## 7. RWX (Mint) Usage & Cost
+## 9. RWX (Mint) Usage & Cost
 
 ### February 2026 Usage
 
