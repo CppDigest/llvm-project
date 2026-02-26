@@ -1,7 +1,7 @@
 #
 # RWX CI — CppDigest/llvm-project (Linux monolithic build)
 #
-# Scope: clang + lld only (reduced from 7 projects to fit 2-core / 120m limit)
+# Scope: clang-only, no debug info (minimal build for 2-core / 180m cold-cache limit)
 # Single build-and-test task to avoid cross-task file transfer issues.
 # DAG: clone → deps/sccache → build-and-test → report
 #
@@ -38,7 +38,7 @@ tasks:
   - key: install-build-deps
     timeout: 5m
     run: |
-      # v5: clang+lld only (reduced scope for 2-core agent)
+      # v6: clang-only, no debug info (minimal for 2-core agent)
       sudo apt-get update
       sudo apt-get install -y \
         cmake ninja-build clang lld \
@@ -68,7 +68,7 @@ tasks:
 
   - key: build-and-test
     use: [clone-repo, install-build-deps, install-sccache]
-    timeout: 120m
+    timeout: 180m
     agent:
       cpus: 2
       memory: 8GB
@@ -86,7 +86,7 @@ tasks:
       sccache --zero-stats
 
       cmake -S "$WORKSPACE_ROOT/llvm-project/llvm" -B "$BUILD_DIR" \
-        -D LLVM_ENABLE_PROJECTS="clang;lld" \
+        -D LLVM_ENABLE_PROJECTS="clang" \
         -G Ninja \
         -D CMAKE_BUILD_TYPE=Release \
         -D LLVM_ENABLE_ASSERTIONS=ON \
@@ -96,7 +96,7 @@ tasks:
         -D LLVM_ENABLE_LLD=ON \
         -D CMAKE_C_COMPILER=clang \
         -D CMAKE_CXX_COMPILER=clang++ \
-        -D CMAKE_CXX_FLAGS=-g1 \
+        -D CMAKE_CXX_FLAGS=-g0 \
         -D CMAKE_C_COMPILER_LAUNCHER=sccache \
         -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
         -D CMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
@@ -131,7 +131,7 @@ tasks:
       # ---- Tests (run all, collect results) ----
       OVERALL_RET=0
 
-      for target in check-llvm check-clang check-lld; do
+      for target in check-clang; do
         STAGE_START=$(date +%s)
         echo ""
         echo "=== Running $target ==="
