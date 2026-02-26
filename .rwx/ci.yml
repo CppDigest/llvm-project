@@ -63,16 +63,16 @@ tasks:
   # ---------- Stage 2: configure + build + test (single task) ----------
   #
   # All stages run in one task to avoid RWX use/filter file transfer issues.
-  # With 16 CPUs, the full build completes much faster than 2-core parallel tasks.
+  # Max agent: 2 CPUs / 8 GB (plan limit). Larger agents require plan upgrade.
 
   - key: build-and-test
     use: [clone-repo, install-build-deps, install-sccache]
     timeout: 120m
     agent:
-      cpus: 16
-      memory: 32GB
+      cpus: 2
+      memory: 8GB
     env:
-      SCCACHE_CACHE_SIZE: 10G
+      SCCACHE_CACHE_SIZE: 5G
     run: |
       set +e
       WORKSPACE_ROOT=$(pwd)
